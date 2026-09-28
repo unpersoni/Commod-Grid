@@ -1,16 +1,18 @@
 """
-Grid search: Window-start × Favorite-entry-price → total profit (winners only).
+Grid search: Window-start × Favorite-entry-price-BAND → total profit (winners only).
 
 Sweeps two variables across every recorded 15-min contract window:
   1. window_start  – minutes before close when the bot begins watching.
                      Range 7.0 → ~0.17 (10 sec before close), step 10 sec.
-  2. entry_price   – minimum favorite-side price (cents) to trigger entry.
+  2. entry_price   – favorite-side price BAND to trigger entry.
                      Range 51¢ → 90¢, step 1¢.
+                     Band width = 5¢, so threshold=54 means enter only when
+                     the favorite is priced between 54¢ and 59¢.
 
 For each combo, for each historical window+ticker:
   - From window_start onward, find the first tick where the favorite
-    (whichever side has mid > 50) is priced ≥ entry_price.
-  - If found, the bot enters at the actual market mid price.
+    (whichever side has mid > 50) is priced within [threshold, threshold+5].
+  - If found, the bot enters at the actual market mid price at that tick.
   - Settlement: avg yes_mid over the final 30s of ticks.
     If > 50 → yes won (settle 100); else no won (settle 0).
   - If the bot's side won: profit = (100 − actual_entry_price) × LOTS.
@@ -33,6 +35,7 @@ OUT_TOP_ASSET = "/content/drive/MyDrive/grid_tp_top20_per_asset.csv"
 # ── parameters ────────────────────────────────────────────────────────
 LOTS = 10
 SETTLE_WINDOW_SEC = 30.0
+BAND_WIDTH_C = 5.0  # entry band = [threshold, threshold + 5¢]
 
 WINDOW_STEP_SEC = 10.0
 window_grid = np.arange(
@@ -43,8 +46,8 @@ window_grid = np.arange(
 
 price_grid = np.arange(51.0, 91.0, 1.0)  # 51, 52, ..., 90 cents
 
-print(f"window steps : {len(window_grid)}  ({window_grid[0]:.2f} → {window_grid[-1]:.2f} min before close)")
-print(f"price steps  : {len(price_grid)}  ({price_grid[0]:.0f}¢ → {price_grid[-1]:.0f}¢)")
+print(f"window steps : {len(window_grid)}  ({window_grid[0]:.2f} -> {window_grid[-1]:.2f} min before close)")
+print(f"price steps  : {len(price_grid)}  ({price_grid[0]:.0f}c -> {price_grid[-1]:.0f}c, band width {BAND_WIDTH_C:.0f}c)")
 print(f"total combos : {len(window_grid) * len(price_grid)}")
 
 
@@ -57,8 +60,9 @@ def determine_settlement(minute, ymid):
 
 
 def process_window(minute, ymid, yes_won):
-    """Single-pass: for every (window_start, entry_price) combo, returns
-    dict  (ws, ep) → (entered: bool, won: bool, profit_c: float)
+    """For every (window_start, entry_price) combo, find the first tick
+    where the favorite is within the price band [threshold, threshold+5].
+    Returns dict  (ws, ep) -> (won: bool, profit_c: float).
     Only combos where an entry was triggered are included.
     """
     n = len(minute)
@@ -79,7 +83,8 @@ def process_window(minute, ymid, yes_won):
         valid_fav = fav_price[valid_idx]
 
         for ep in price_grid:
-            hits = valid_fav >= ep
+            band_top = ep + BAND_WIDTH_C
+            hits = (valid_fav >= ep) & (valid_fav <= band_top)
             if not hits.any():
                 continue
             first_hit = np.argmax(hits)
@@ -131,14 +136,15 @@ def run(tick_csv=TICK_CSV):
                 agg[key][2] += profit
         if (wi + 1) % report_every == 0:
             pct = 100 * (wi + 1) / n_windows
-            print(f"  {wi+1}/{n_windows} ({pct:.0f}%) — {time.time()-t0:.0f}s elapsed")
+            print(f"  {wi+1}/{n_windows} ({pct:.0f}%) -- {time.time()-t0:.0f}s elapsed")
 
     # ── per-asset detail ──────────────────────────────────────────────
     rows = []
     for (ws, ep, asset), (n_ent, n_win, prof) in agg.items():
         rows.append({
             "window_min_before_close": ws,
-            "entry_threshold_c": ep,
+            "entry_band_low_c": ep,
+            "entry_band_high_c": ep + BAND_WIDTH_C,
             "asset": asset,
             "n_entries": n_ent,
             "n_wins": n_win,
@@ -153,7 +159,7 @@ def run(tick_csv=TICK_CSV):
     # ── overall (all assets combined) ─────────────────────────────────
     overall = (
         detail
-        .groupby(["window_min_before_close", "entry_threshold_c"])
+        .groupby(["window_min_before_close", "entry_band_low_c", "entry_band_high_c"])
         .agg(
             n_entries=("n_entries", "sum"),
             n_wins=("n_wins", "sum"),
@@ -188,8 +194,9 @@ def run(tick_csv=TICK_CSV):
 
     print(f"\n{'='*70}")
     print("TOP 15 COMBOS BY TOTAL PROFIT (all assets, winners only)")
+    print(f"  entry band = [low, low + {BAND_WIDTH_C:.0f}c]")
     print("="*70)
-    cols = ["window_min_before_close", "entry_threshold_c",
+    cols = ["window_min_before_close", "entry_band_low_c", "entry_band_high_c",
             "n_entries", "n_wins", "win_rate",
             "total_profit_c", "avg_profit_per_entry_c"]
     print(overall[cols].head(15).to_string(index=False))
