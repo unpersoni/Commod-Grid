@@ -41,16 +41,63 @@ THRESHOLDS     = np.arange(89, 9, -1)  # reversal trigger: favorite's bid <= T
 LOTS           = 10
 
 # %%
+# LOAD — row by row, by content, not by the header. Different bot versions appended rows with
+# different columns (e.g. a 'src' field ws/rest inserted before the prices), so the header can
+# be wrong for part of the file. Each row: find the ticker, skip text fields (asset, phase,
+# src), then the next four numbers are yes_bid, yes_ask, yes_mid, sec_to_close.
+import csv, collections
 t0 = time.time()
-df = pd.read_csv(TICK_CSV, usecols=["ticker", "asset", "yes_bid", "yes_ask",
-                                    "yes_mid", "sec_to_close"])
-df = df.dropna(subset=["yes_mid", "sec_to_close"])
-df = df[df["sec_to_close"] <= FAV_WINDOW_SEC]   # includes the final seconds for settlement
-df["yes_bid"] = df["yes_bid"].fillna(df["yes_mid"])
-df["yes_ask"] = df["yes_ask"].fillna(df["yes_mid"])
+
+def num(x):
+    try: return float(x)
+    except (TypeError, ValueError): return None
+
+recs, layouts, samples = [], collections.Counter(), {}
+n_rows = n_bad = n_misread = 0
+with open(TICK_CSV, newline="") as fh:
+    rd = csv.reader(fh)
+    header = next(rd)
+    hdr_bid = header.index("yes_bid") if "yes_bid" in header else None
+    for row in rd:
+        n_rows += 1
+        ti = next((i for i, f in enumerate(row[:4]) if "15M-" in f), None)
+        if ti is None:
+            n_bad += 1; continue
+        vals, first = [], None
+        for j in range(ti + 2, len(row)):
+            v = num(row[j]) if row[j] != "" else None
+            if v is None:
+                if vals: break
+                continue
+            if first is None: first = j
+            vals.append(v)
+            if len(vals) == 4: break
+        if len(vals) < 4:
+            n_bad += 1; continue
+        yb, ya, mid, s = vals
+        if not (0 <= yb <= ya <= 100 and 0 <= mid <= 100 and abs(mid - (yb + ya) / 2) <= 1
+                and -60 <= s <= 900):
+            n_bad += 1; continue
+        key = (len(row), first)
+        layouts[key] += 1
+        samples.setdefault(key, row[:first + 4])
+        if hdr_bid is not None and first != hdr_bid:
+            n_misread += 1
+        if s <= FAV_WINDOW_SEC:
+            recs.append((row[ti], row[ti + 1], yb, ya, mid, s))
+
+df = pd.DataFrame(recs, columns=["ticker", "asset", "yes_bid", "yes_ask", "yes_mid", "sec_to_close"])
 tickers = sorted(df["ticker"].unique())
-print(f"{len(df):,} ticks in the final {FAV_WINDOW_SEC}s across {len(tickers):,} markets "
-      f"({time.time() - t0:.0f}s)")
+print(f"header: {header}")
+print(f"{n_rows:,} rows read in {time.time() - t0:.0f}s; unusable rows skipped: {n_bad:,}")
+print("row layouts found (fields per row, column where the prices start):")
+for key, c in layouts.most_common():
+    print(f"   {c:>10,} rows  {key}  e.g. {samples[key]}")
+if n_misread:
+    print(f"NOTE: {n_misread:,} rows ({n_misread / max(1, sum(layouts.values())):.1%}) have their "
+          "prices in different columns than the header says — reading by column name would "
+          "have misread them. They are read correctly here.")
+print(f"{len(df):,} ticks in the final {FAV_WINDOW_SEC}s across {len(tickers):,} markets")
 
 # %%
 # SETTLEMENT FROM THE TICK LOG: in the market's final seconds, the side priced 99-100c is the
