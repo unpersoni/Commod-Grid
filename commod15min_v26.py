@@ -46,6 +46,7 @@
 #   Every BUY/STOP line prints: price seen, feed source, exchange->bot
 #   feed lag, fill, slippage vs target, trigger->fill ms, order round trip.
 # ============================================================
+KALSHI_KEY_ID = ""  # <-- paste your Kalshi API key ID here (same one V25 used)
 LIVE     = False  # PAPER mode. Flip to True only when explicitly decided.
 PEM_PATH    = '/content/drive/MyDrive/intraday key.pem'
 KEY_ID_PATH = '/content/drive/MyDrive/kalshi_key_id.txt'
@@ -125,8 +126,9 @@ def fmt_ms(x): return "?" if x is None else f"{x:.0f}ms"
 # AUTH
 # ============================================================
 def load_key_id():
-    """Colab Secret -> env var -> Drive file. Read at startup, never at
-    import (Drive may not be mounted yet when the code cell runs)."""
+    """KALSHI_KEY_ID above -> Colab Secret -> env var -> Drive file."""
+    if KALSHI_KEY_ID.strip():
+        return KALSHI_KEY_ID.strip(), "KALSHI_KEY_ID in the bot cell"
     try:
         from google.colab import userdata
         v = (userdata.get("KALSHI_KEY_ID") or "").strip()
@@ -145,10 +147,8 @@ def init_auth():
     KEY_ID, KEY_SRC = load_key_id()
     if not KEY_ID:
         raise SystemExit(
-            "No Kalshi API key ID found. Do ONE of these, then re-run:\n"
-            "  - Colab left sidebar > key icon (Secrets) > add KALSHI_KEY_ID, "
-            "enable notebook access\n"
-            f"  - or put the key ID alone in {KEY_ID_PATH}")
+            "No Kalshi API key ID: paste it into KALSHI_KEY_ID = \"\" at the top "
+            "of the bot cell, then Run all again.")
     if not os.path.exists(PEM_PATH):
         raise SystemExit(f"Private key PEM not found: {PEM_PATH}")
     return serialization.load_pem_private_key(open(PEM_PATH, "rb").read(), password=None)
@@ -843,6 +843,7 @@ def main():
     k = init_auth()
     sess = make_session()
     require_rest_auth(sess, k)
+    print(f"[ok] logged in to Kalshi (key {KEY_ID[:8]}...)")
     fetch_open(sess, k)
 
     if FEED is None or FEED.stop_flag.is_set() or FEED.auth_failed:
