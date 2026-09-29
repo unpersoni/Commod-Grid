@@ -62,16 +62,24 @@ def fee_c(p, n=LOTS):
 # %%
 # LOAD — rows read by content (the old file mixes column layouts): ticker, asset, then the
 # next four numbers are yes_bid, yes_ask, yes_mid, sec_to_close; spot and strike follow.
+# Stored in compact arrays (not a big Python list) so all 11 markets fit in Colab's memory.
+from array import array
+import gc
+
 def num(x):
     try: return float(x)
     except (TypeError, ValueError): return None
 
 t0 = time.time()
-recs, cover = [], collections.defaultdict(float)
+tid_of, tickers, asset_of = {}, [], []
+TID, YB, YA, S2C = array("i"), array("f"), array("f"), array("f")
+SPOT, STRIKE = array("d"), array("d")
+cover = collections.defaultdict(float)
+NAN = float("nan")
 for path in TICK_FILES:
     if not os.path.exists(path):
         print("not found (skipped):", path); continue
-    n0 = len(recs)
+    n0 = len(TID)
     with open(path, newline="") as fh:
         rd = csv.reader(fh); next(rd, None)
         for row in rd:
@@ -91,26 +99,38 @@ for path in TICK_FILES:
             if not (0 <= yb <= ya <= 100 and abs(mid - (yb + ya) / 2) <= 1 and -60 <= s <= 900):
                 continue
             t = row[ti]
-            cover[t] = max(cover[t], s)
+            if s > cover[t]: cover[t] = s
             if s > ENTRY_FROM + 40: continue
-            spot = strike = np.nan
+            spot = strike = NAN
             if row[ti + 1] in CRYPTO and first + 5 < len(row):
                 sp, sk = num(row[first + 4]), num(row[first + 5])
                 if sk and sk > 0:
                     strike = sk
                     if sp and abs(sp / sk - 1) < 0.05: spot = sp
-            recs.append((t, row[ti + 1], yb, ya, mid, s, spot, strike))
-    print(f"{os.path.basename(path)}: {len(recs) - n0:,} rows kept")
-df = pd.DataFrame(recs, columns=["ticker", "asset", "yb", "ya", "mid", "s2c", "spot", "strike"])
-del recs
+            k = tid_of.get(t)
+            if k is None:
+                k = tid_of[t] = len(tickers); tickers.append(t); asset_of.append(row[ti + 1])
+            TID.append(k); YB.append(yb); YA.append(ya); S2C.append(s)
+            SPOT.append(spot); STRIKE.append(strike)
+    print(f"{os.path.basename(path)}: {len(TID) - n0:,} rows kept ({time.time() - t0:.0f}s)")
+
+TID, YB, YA, S2C = (np.frombuffer(a, dtype=d) for a, d in
+                    ((TID, np.int32), (YB, np.float32), (YA, np.float32), (S2C, np.float32)))
+SPOT, STRIKE = np.frombuffer(SPOT, dtype=np.float64), np.frombuffer(STRIKE, dtype=np.float64)
+order = np.lexsort((-S2C, TID))            # by market, then time (seconds-to-close falling)
+TID, YB, YA, S2C, SPOT, STRIKE = (a[order] for a in (TID, YB, YA, S2C, SPOT, STRIKE))
+del order; gc.collect()
+bounds = np.flatnonzero(np.diff(TID)) + 1
+starts, ends = np.r_[0, bounds], np.r_[bounds, len(TID)]
 
 official = {}
 for path in SETTLE_FILES:
     if os.path.exists(path):
-        s = pd.read_csv(path)
-        official.update({t: r == "yes" for t, r in zip(s["ticker"], s["result"]) if r in ("yes", "no")})
+        sf = pd.read_csv(path)
+        official.update({t: r == "yes" for t, r in zip(sf["ticker"], sf["result"]) if r in ("yes", "no")})
 
-def price_result(s2c, mid, yb, ya):
+def price_result(s2c, yb, ya):
+    mid = (yb + ya) / 2
     m = s2c <= 15
     iy = np.flatnonzero(m & ((mid >= 99) | (yb >= 99)))
     ino = np.flatnonzero(m & ((mid <= 1) | (ya <= 1)))
@@ -120,20 +140,23 @@ def price_result(s2c, mid, yb, ya):
     return bool(iy[-1] > ino[-1])
 
 markets = []
-for t, g in df.groupby("ticker", sort=False):
+for a, b in zip(starts, ends):
+    if a == b: continue
+    t = tickers[TID[a]]
     if cover[t] < COVER_MIN: continue
-    g = g.drop_duplicates("s2c").sort_values("s2c", ascending=False)
-    s2c = g["s2c"].to_numpy(float)
-    yb, ya, mid = (g[c].to_numpy(float) for c in ("yb", "ya", "mid"))
+    s2c = S2C[a:b].astype(float)
+    keep = np.r_[True, np.diff(s2c) != 0]  # drop duplicate timestamps
+    s2c = s2c[keep]
+    yb, ya = YB[a:b][keep].astype(float), YA[a:b][keep].astype(float)
     res = official.get(t)
-    if res is None: res = price_result(s2c, mid, yb, ya)
+    if res is None: res = price_result(s2c, yb, ya)
     if res is None: continue
     k = s2c > DEADBAND_SEC
-    sk = g["strike"].dropna()
-    markets.append({"t": t, "asset": g["asset"].iloc[0], "yes_won": res,
-                    "strike": float(sk.iloc[0]) if len(sk) else np.nan,
-                    "s2c": s2c[k], "yb": yb[k], "ya": ya[k], "spot": g["spot"].to_numpy(float)[k]})
-del df
+    sk = STRIKE[a:b][np.isfinite(STRIKE[a:b])]
+    markets.append({"t": t, "asset": asset_of[TID[a]], "yes_won": res,
+                    "strike": float(sk[0]) if len(sk) else np.nan,
+                    "s2c": s2c[k], "yb": yb[k], "ya": ya[k], "spot": SPOT[a:b][keep][k]})
+del TID, YB, YA, S2C, SPOT, STRIKE; gc.collect()
 print(f"{len(markets):,} markets logged from {COVER_MIN}s+ before close with a known result "
       f"({sum(m['t'] in official for m in markets):,} from official settlement files) "
       f"in {time.time() - t0:.0f}s")
@@ -181,6 +204,8 @@ def summarize(rows, keys):
 
 # %%
 # A. NO SIGNAL — first time either side's ask is in the band (favorite if both are)
+assert "markets" in globals(), ("the LOAD cell above didn't finish — run all cells from the top "
+                                "(if Colab said it ran out of memory, Runtime -> Restart, then Run all)")
 rows = []
 for m in markets:
     s, yb, ya = m["s2c"], m["yb"], m["ya"]
