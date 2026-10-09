@@ -52,11 +52,14 @@ BOTS = ["commod15min_v36a", "commod15min_v36b2", "commod15min_v36b", "commod15mi
 def files_of(base):                       # a bot's file, plain or compressed by the cleanup notebook
     return [p for p in (base, base + ".gz") if os.path.exists(p)][:1]
 V37_DIR = D + "commod15min_v37_data/"
+def hourly(pattern):                       # V37 hourly files; if an hour exists as .csv and .csv.gz, use the .gz
+    fs = set(glob.glob(V37_DIR + pattern + ".csv")) | set(glob.glob(V37_DIR + pattern + ".csv.gz"))
+    return sorted(f for f in fs if not (f.endswith(".csv") and f + ".gz" in fs))
 # each source = (name, [files]); all files of one source count as one bot
-TICK_SOURCES = [("commod15min_v37 (hourly)", sorted(glob.glob(V37_DIR + "ticks_*.csv*")))] + \
+TICK_SOURCES = [("commod15min_v37 (hourly)", hourly("ticks_*"))] + \
                [(b, files_of(D + b + "_ticks.csv")) for b in BOTS] + \
                [("commod15min_ticks_recent", files_of(D + "commod15min_ticks_recent.csv"))]
-BOOK_SOURCES = [("commod15min_v37 book (hourly)", sorted(glob.glob(V37_DIR + "book_*.csv*")))] + \
+BOOK_SOURCES = [("commod15min_v37 book (hourly)", hourly("book_*"))] + \
                [(b + " book", files_of(D + b + "_book.csv")) for b in ("commod15min_v36a", "commod15min_v36b2", "commod15min_v36b")]
 SETTLE_FILES = [f for b in ["commod15min_v37"] + BOTS for f in files_of(D + b + "_settlements.csv")]
 
