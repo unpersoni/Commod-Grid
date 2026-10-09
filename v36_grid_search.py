@@ -2,12 +2,13 @@
 # # V36 Grid Search — which entry band, sell target, window, filter and exit actually hold up?
 #
 # Replays the bot rules (buy a side whose ask is in a band, sell when its bid reaches a target,
-# else hold to settlement; ONE trade per market) on every market in your logs: the tick files
-# (V36/V35 first, then the older bots), plus the V36 order-book files, which hold the best bid/ask
-# every 2s and fill in markets the tick files don't have. Section 0 checks every file first.
+# else hold to settlement; ONE trade per market) on every market in your logs: V37's hourly tick
+# files, the older bots' tick files (plain .csv or compressed .csv.gz), plus the order-book files
+# (best bid/ask every 2s), which fill in markets the tick files don't have. Section 0 checks every
+# file first.
 #
-# Grid: entry bands 23-27c ... 73-77c (5c steps) x sell targets +5 ... +30c x buy windows
-# (minute 0-3, 0-6, 0-9, 0-12) x exits x filters.
+# Grid: entry bands 23-27c ... 93-97c (5c steps) x sell targets +5 ... +30c (capped at 97c) x
+# buy windows (minute 0-3, 0-6, 0-9, 0-12, and late starts 4-12 and 6-13) x exits x filters.
 # Exits: hold   - not sold at the target -> held to settlement ($1 or $0)
 #        exit10 / exit12 / exit14 - not sold by minute 10 / 12 / 14 -> sold at the bid then
 # Filters:
@@ -34,7 +35,7 @@ except ImportError:                      # local test run
     D = os.environ["GRID_DATA_DIR"]
 
 # %%
-import csv, os, re, time, math, collections, gc, datetime as dt
+import csv, os, re, time, math, collections, gc, glob, gzip, datetime as dt
 from array import array
 import numpy as np
 import pandas as pd
@@ -43,13 +44,25 @@ try:
 except NameError:
     display = print
 
-# earlier files win when two bots logged the same market (V36/V35 first: they have spot prices)
+# earlier sources win when two bots logged the same market (newest first: they have spot prices)
 BOTS = ["commod15min_v36a", "commod15min_v36b2", "commod15min_v36b", "commod15min_v35a", "commod15min_v35b",
         "commod15min_v34b", "commod15min_v34c", "commod15min_v34", "commod15min_v34a", "commodmaker_v1",
-        "commod15min_v33", "commod15min_v31", "commod1dollar_v2", "commod15min_v30", "commod1dollar_v1"]
-TICK_FILES = [D + b + "_ticks.csv" for b in BOTS]
-SETTLE_FILES = [D + b + "_settlements.csv" for b in BOTS]
-BOOK_FILES = [D + b + "_book.csv" for b in ("commod15min_v36a", "commod15min_v36b2", "commod15min_v36b")]
+        "commod15min_v33", "commod15min_v32", "commod15min_v31", "commod1dollar_v2", "commod15min_v30",
+        "commod1dollar_v1", "commod15min"]          # "commod15min" = the earlier bots' commod15min_ticks.csv
+def files_of(base):                       # a bot's file, plain or compressed by the cleanup notebook
+    return [p for p in (base, base + ".gz") if os.path.exists(p)][:1]
+V37_DIR = D + "commod15min_v37_data/"
+# each source = (name, [files]); all files of one source count as one bot
+TICK_SOURCES = [("commod15min_v37 (hourly)", sorted(glob.glob(V37_DIR + "ticks_*.csv*")))] + \
+               [(b, files_of(D + b + "_ticks.csv")) for b in BOTS] + \
+               [("commod15min_ticks_recent", files_of(D + "commod15min_ticks_recent.csv"))]
+BOOK_SOURCES = [("commod15min_v37 book (hourly)", sorted(glob.glob(V37_DIR + "book_*.csv*")))] + \
+               [(b + " book", files_of(D + b + "_book.csv")) for b in ("commod15min_v36a", "commod15min_v36b2", "commod15min_v36b")]
+SETTLE_FILES = [f for b in ["commod15min_v37"] + BOTS for f in files_of(D + b + "_settlements.csv")]
+
+def opener(path, mode="rt"):
+    if path.endswith(".gz"): return gzip.open(path, mode, newline="") if "t" in mode else gzip.open(path, mode)
+    return open(path, mode, newline="") if "t" in mode else open(path, mode)
 V36A_TRADES = D + "commod15min_v36a_trades.csv"
 OUT_GRID, OUT_ROBUST, OUT_ENTRIES = D + "v36_grid.csv", D + "v36_grid_robust.csv", D + "v36_entries.csv.gz"
 
@@ -61,9 +74,11 @@ LOTS       = 10
 TRAIN_FRAC = 0.6
 MIN_N      = 40        # positions needed in EACH half for a setting to count
 
-BANDS   = [(lo, lo + 4) for lo in range(23, 74, 5)]          # 23-27 ... 73-77
+BANDS   = [(lo, lo + 4) for lo in range(23, 94, 5)]          # 23-27 ... 93-97
 UPS     = [5, 10, 15, 20, 25, 30]                             # sell target = band middle + this
-WINDOWS = {"min 0-3": (900, 720), "min 0-6": (900, 540), "min 0-9": (900, 360), "min 0-12": (900, 180)}
+WINDOWS = {"min 0-3": (900, 720), "min 0-6": (900, 540), "min 0-9": (900, 360), "min 0-12": (900, 180),
+           "min 4-12": (660, 180), "min 6-13": (540, 120)}          # late starts: buy the side still leading
+ENTRY_WINDOWS = ("min 0-12", "min 6-13")                           # windows saved to the entries file
 FILTERS = ["none", "kalshi_with", "kalshi_against", "spot_with"]
 EXITS   = {"hold": None, "exit10": 300, "exit12": 180, "exit14": 60}   # sell at the bid once s2c <= this
 K_MOVE  = 2            # cents, Kalshi move over 60s for kalshi_with / kalshi_against
@@ -88,20 +103,21 @@ def ts_of(x):
 # %%
 # 0. FILE CHECK — size, lines, damaged lines, NUL bytes and rows per day for every price file
 DATE_RE = re.compile(rb"^(\d{4}-\d\d-\d\d)T")
-for path in TICK_FILES + BOOK_FILES:
-    if not os.path.exists(path): continue
-    size, lines, nul_lines, per_day, last = os.path.getsize(path), 0, 0, collections.Counter(), b""
-    with open(path, "rb") as fh:
-        next(fh, None)
-        for line in fh:
-            lines += 1
-            if b"\x00" in line: nul_lines += 1; continue
-            m = DATE_RE.match(line)
-            if m: per_day[m.group(1).decode()[5:]] += 1; last = line[:19]
-            else: per_day["no-date"] += 1
+for name, paths in TICK_SOURCES + BOOK_SOURCES:
+    if not paths: continue
+    size, lines, nul_lines, per_day, last = sum(os.path.getsize(p) for p in paths), 0, 0, collections.Counter(), b""
+    for path in paths:
+        with opener(path, "rb") as fh:
+            next(fh, None)
+            for line in fh:
+                lines += 1
+                if b"\x00" in line: nul_lines += 1; continue
+                m = DATE_RE.match(line)
+                if m: per_day[m.group(1).decode()[5:]] += 1; last = max(last, line[:19])
+                else: per_day["no-date"] += 1
     days = "  ".join(f"{d}:{n:,}" for d, n in sorted(per_day.items()))
-    print(f"{os.path.basename(path)}: {size/1e6:,.1f} MB, {lines:,} lines, {nul_lines:,} with NUL bytes, "
-          f"last {last.decode(errors='replace')}\n    rows per day: {days}")
+    print(f"{name} ({len(paths)} file{'s' if len(paths) > 1 else ''}): {size/1e6:,.1f} MB on disk, {lines:,} lines, "
+          f"{nul_lines:,} with NUL bytes, last {last.decode(errors='replace')}\n    rows per day: {days}")
 
 # %%
 # LOAD — layouts differ by bot; the header tells where things are. Older bots log
@@ -111,93 +127,98 @@ claimed, tickers, asset_of = {}, [], []
 TID, YB, YA, S2C, SPOT = array("i"), array("f"), array("f"), array("f"), array("f")
 TS = array("d")
 cover = collections.defaultdict(float)
-for fi, path in enumerate(TICK_FILES):
-    if not os.path.exists(path):
-        print("not found (skipped):", os.path.basename(path)); continue
-    n0, first_ts, last_ts, dup, bad = len(TID), None, None, 0, 0
-    with open(path, newline="") as fh:
-        rd = csv.reader(fh)
-        header = next(rd, [])
-        k_need = 4 if "yes_mid" in header else 3
-        sp_i = header.index("spot_px") if "spot_px" in header else None
-        for row in rd:
-            ti = next((i for i, f in enumerate(row[:4]) if "15M-" in f), None)
-            if ti is None or ti + 1 >= len(row): bad += 1; continue
-            t = row[ti]
-            own = claimed.get(t)
-            if own is not None and own[0] != fi: dup += 1; continue
-            vals = []
-            for j in range(ti + 2, len(row)):
-                v = num(row[j]) if row[j] != "" else None
-                if v is None:
-                    if vals: break
-                    continue
-                vals.append(v)
-                if len(vals) == k_need: break
-            if len(vals) < k_need: bad += 1; continue
-            if k_need == 4:
-                yb, ya, mid, s = vals
-                if abs(mid - (yb + ya) / 2) > 1: bad += 1; continue
-            else:
-                yb, ya, s = vals
-            if not (0 <= yb <= ya <= 100 and -60 <= s <= 930): bad += 1; continue
-            if own is None:
-                own = claimed[t] = (fi, len(tickers)); tickers.append(t); asset_of.append(row[ti + 1])
-            if s > cover[t]: cover[t] = s
-            sp = num(row[sp_i]) if sp_i is not None and sp_i < len(row) else None
-            ts = ts_of(row[0])
-            TID.append(own[1]); YB.append(yb); YA.append(ya); S2C.append(s)
-            SPOT.append(sp if sp else float("nan")); TS.append(ts)
-            if ts == ts:
-                if first_ts is None: first_ts = ts
-                last_ts = ts
-    span = (f"{dt.datetime.fromtimestamp(first_ts, dt.timezone.utc):%b %d %H:%M} -> {dt.datetime.fromtimestamp(last_ts, dt.timezone.utc):%b %d %H:%M} UTC"
-            if first_ts else "no timestamps")
-    print(f"{os.path.basename(path)}: {len(TID) - n0:,} new rows, {dup:,} duplicates of markets already "
-          f"loaded from an earlier file, {bad:,} unreadable | {span} ({time.time() - t0:.0f}s)")
-N_TICK_FILES = len(TICK_FILES)
+def span_of(first_ts, last_ts, empty):
+    if first_ts is None: return empty
+    f = lambda x: dt.datetime.fromtimestamp(x, dt.timezone.utc).strftime("%b %d %H:%M")
+    return f"{f(first_ts)} -> {f(last_ts)} UTC"
+
+for fi, (name, paths) in enumerate(TICK_SOURCES):
+    if not paths:
+        print("not found (skipped):", name); continue
+    n0, first_ts, last_ts, dup, other = len(TID), None, None, 0, 0
+    for path in paths:
+        with opener(path) as fh:
+            rd = csv.reader(fh)
+            header = next(rd, [])
+            k_need = 4 if "yes_mid" in header else 3
+            sp_i = header.index("spot_px") if "spot_px" in header else None
+            for row in rd:
+                ti = next((i for i, f in enumerate(row[:4]) if "15M-" in f), None)
+                if ti is None or ti + 1 >= len(row): other += 1; continue
+                t = row[ti]
+                own = claimed.get(t)
+                if own is not None and own[0] != fi: dup += 1; continue
+                vals = []
+                for j in range(ti + 2, len(row)):
+                    v = num(row[j]) if row[j] != "" else None
+                    if v is None:
+                        if vals: break
+                        continue
+                    vals.append(v)
+                    if len(vals) == k_need: break
+                if len(vals) < k_need: other += 1; continue
+                if k_need == 4:
+                    yb, ya, mid, s = vals
+                    if abs(mid - (yb + ya) / 2) > 1: other += 1; continue
+                else:
+                    yb, ya, s = vals
+                if not (0 <= yb <= ya <= 100 and -60 <= s <= 930): other += 1; continue
+                if own is None:
+                    own = claimed[t] = (fi, len(tickers)); tickers.append(t); asset_of.append(row[ti + 1])
+                if s > cover[t]: cover[t] = s
+                sp = num(row[sp_i]) if sp_i is not None and sp_i < len(row) else None
+                ts = ts_of(row[0])
+                TID.append(own[1]); YB.append(yb); YA.append(ya); S2C.append(s)
+                SPOT.append(sp if sp else float("nan")); TS.append(ts)
+                if ts == ts:
+                    first_ts = ts if first_ts is None else min(first_ts, ts)
+                    last_ts = ts if last_ts is None else max(last_ts, ts)
+    print(f"{name}: {len(TID) - n0:,} new rows, {dup:,} duplicates of markets already loaded from an earlier "
+          f"source, {other:,} rows of other Kalshi markets or without a price | "
+          f"{span_of(first_ts, last_ts, 'no new markets')} ({time.time() - t0:.0f}s)")
+N_TICK_SOURCES = len(TICK_SOURCES)
 
 # order-book files: ts_iso, ticker, asset, sec_to_close, yes_bids "p:q;p:q", no_bids "p:q;..."
 # best YES bid = first yes level; YES ask = 100 - best NO bid. They only fill markets the tick
 # files don't have; rows for markets the tick files have are kept aside to check agreement.
 book_check = collections.defaultdict(list)
-for bi, path in enumerate(BOOK_FILES):
-    fi = N_TICK_FILES + bi
-    if not os.path.exists(path):
-        print("not found (skipped):", os.path.basename(path)); continue
-    n0, first_ts, last_ts, dup, bad = len(TID), None, None, 0, 0
-    with open(path, newline="") as fh:
-        rd = csv.reader(fh)
-        next(rd, None)
-        for row in rd:
-            if len(row) < 6 or "15M-" not in row[1]: bad += 1; continue
-            t = row[1]
-            try:
-                yb = float(row[4].split(";")[0].split(":")[0]) if row[4] else None
-                nb = float(row[5].split(";")[0].split(":")[0]) if row[5] else None
-                s = float(row[3])
-            except ValueError:
-                bad += 1; continue
-            if yb is None or nb is None: bad += 1; continue
-            ya = 100 - nb
-            if not (0 <= yb <= ya <= 100 and -60 <= s <= 930): bad += 1; continue
-            own = claimed.get(t)
-            if own is not None and own[0] < N_TICK_FILES:
-                if len(book_check[t]) < 400: book_check[t].append((s, yb, ya))
-                dup += 1; continue
-            if own is not None and own[0] != fi: dup += 1; continue
-            if own is None:
-                own = claimed[t] = (fi, len(tickers)); tickers.append(t); asset_of.append(row[2])
-            if s > cover[t]: cover[t] = s
-            ts = ts_of(row[0])
-            TID.append(own[1]); YB.append(yb); YA.append(ya); S2C.append(s); SPOT.append(float("nan")); TS.append(ts)
-            if ts == ts:
-                if first_ts is None: first_ts = ts
-                last_ts = ts
-    span = (f"{dt.datetime.fromtimestamp(first_ts, dt.timezone.utc):%b %d %H:%M} -> {dt.datetime.fromtimestamp(last_ts, dt.timezone.utc):%b %d %H:%M} UTC"
-            if first_ts else "no new markets")
-    print(f"{os.path.basename(path)}: {len(TID) - n0:,} new rows, {dup:,} rows for markets already in tick files, "
-          f"{bad:,} unreadable/empty | {span} ({time.time() - t0:.0f}s)")
+for bi, (name, paths) in enumerate(BOOK_SOURCES):
+    fi = N_TICK_SOURCES + bi
+    if not paths:
+        print("not found (skipped):", name); continue
+    n0, first_ts, last_ts, dup, other = len(TID), None, None, 0, 0
+    for path in paths:
+        with opener(path) as fh:
+            rd = csv.reader(fh)
+            next(rd, None)
+            for row in rd:
+                if len(row) < 6 or "15M-" not in row[1]: other += 1; continue
+                t = row[1]
+                try:
+                    yb = float(row[4].split(";")[0].split(":")[0]) if row[4] else None
+                    nb = float(row[5].split(";")[0].split(":")[0]) if row[5] else None
+                    s = float(row[3])
+                except ValueError:
+                    other += 1; continue
+                if yb is None or nb is None: other += 1; continue
+                ya = 100 - nb
+                if not (0 <= yb <= ya <= 100 and -60 <= s <= 930): other += 1; continue
+                own = claimed.get(t)
+                if own is not None and own[0] < N_TICK_SOURCES:
+                    if len(book_check[t]) < 400: book_check[t].append((s, yb, ya))
+                    dup += 1; continue
+                if own is not None and own[0] != fi: dup += 1; continue
+                if own is None:
+                    own = claimed[t] = (fi, len(tickers)); tickers.append(t); asset_of.append(row[2])
+                if s > cover[t]: cover[t] = s
+                ts = ts_of(row[0])
+                TID.append(own[1]); YB.append(yb); YA.append(ya); S2C.append(s); SPOT.append(float("nan")); TS.append(ts)
+                if ts == ts:
+                    first_ts = ts if first_ts is None else min(first_ts, ts)
+                    last_ts = ts if last_ts is None else max(last_ts, ts)
+    print(f"{name}: {len(TID) - n0:,} new rows, {dup:,} rows for markets already loaded, "
+          f"{other:,} rows of other markets or with an empty side | "
+          f"{span_of(first_ts, last_ts, 'no new markets')} ({time.time() - t0:.0f}s)")
 if not len(TID): raise SystemExit("No price rows found.")
 
 TID, YB, YA, S2C, SPOT, TS = (np.frombuffer(a, dtype=d) for a, d in
@@ -253,14 +274,34 @@ for path in SETTLE_FILES:
                 if num(k): strike[t] = num(k)
 
 markets = []
+# Markets with no settlement file (the earliest bots kept none): take the result from the final
+# price when the market was logged to its last 5 seconds and was decided (mid >= 97c or <= 3c).
+# Checked first against markets whose official result IS known.
+def inferred_result(s, yb, ya):
+    i = np.argmin(s)
+    if s[i] > 5: return None
+    mid = (yb[i] + ya[i]) / 2
+    return True if mid >= 97 else False if mid <= 3 else None
+agree = tot_inf = n_inferred = 0
 for a, b in zip(starts, ends):
     t = tickers[TID[a]]
-    if cover[t] < COVER_FROM or t not in official: continue
+    if t in official:
+        r = inferred_result(S2C[a:b], YB[a:b], YA[a:b])
+        if r is not None: tot_inf += 1; agree += (r == official[t])
+print(f"result-from-final-price check: agrees with Kalshi's official result on {agree:,} of {tot_inf:,} markets"
+      + (f" ({agree / tot_inf * 100:.1f}%)" if tot_inf else ""))
+for a, b in zip(starts, ends):
+    t = tickers[TID[a]]
+    if cover[t] < COVER_FROM: continue
+    if t not in official:
+        r = inferred_result(S2C[a:b], YB[a:b], YA[a:b])
+        if r is None: continue
+        official[t] = r; n_inferred += 1
     s = S2C[a:b].astype(float)
     keep = np.r_[True, np.diff(s) != 0] & (s > DEADBAND) & (s <= 900)
     if keep.sum() < 5: continue
     markets.append({"t": t, "asset": asset_of[TID[a]], "yes_won": official[t], "key": close_key(t),
-                    "src": "book" if claimed[t][0] >= N_TICK_FILES else "ticks",
+                    "src": "book" if claimed[t][0] >= N_TICK_SOURCES else "ticks",
                     "strike": strike.get(t), "s": s[keep], "yb": YB[a:b][keep].astype(float),
                     "ya": YA[a:b][keep].astype(float), "ts": TS[a:b][keep]})
 del TID, YB, YA, S2C, TS; gc.collect()
@@ -268,6 +309,7 @@ markets.sort(key=lambda m: m["key"])
 cut = int(len(markets) * TRAIN_FRAC)
 for i, m in enumerate(markets): m["part"] = "train" if i < cut else "test"
 ncr = sum(m["asset"] in CRYPTO for m in markets)
+print(f"markets whose result came from the final price (no settlement file): {n_inferred:,}")
 nbook = sum(m["src"] == "book" for m in markets)
 print(f"markets from tick files: {len(markets) - nbook:,} | from order-book files: {nbook:,}")
 # agreement: book best bid/ask vs the tick price in force at the same moment, same market
@@ -387,7 +429,7 @@ for mi, m in enumerate(markets):
                     for up, (px, sold, net) in zip(UPS, rr):
                         a_ = acc[(f"{lo}-{hi}", up, wname, filt, xn, cr, m["part"])]
                         a_[0] += 1; a_[1] += net; a_[2] += sold
-                if wname == "min 0-12" and filt == "none":
+                if wname in ENTRY_WINDOWS and filt == "none":
                     s, yb, ya, ts = m["s"], m["yb"], m["ya"], m["ts"]
                     sg = 1 if yes else -1
                     side_mid = (yb + ya) / 2 if yes else 100 - (yb + ya) / 2
@@ -397,7 +439,7 @@ for mi, m in enumerate(markets):
                     j30 = max(int(np.searchsorted(-s, -(s[k] + 30), side="right")) - 1, 0)
                     ent.append({
                         "ticker": m["t"], "asset": m["asset"], "crypto": cr, "key": m["key"], "part": m["part"], "src": m["src"],
-                        "band": f"{lo}-{hi}", "side": "YES" if yes else "NO", "px": res[0][0],
+                        "band": f"{lo}-{hi}", "window": wname, "side": "YES" if yes else "NO", "px": res[0][0],
                         "s2c": round(s[k], 1), "minute": int((900 - s[k]) // 60),
                         "hour_utc": (dt.datetime.fromtimestamp(ts[k], dt.timezone.utc).hour if ts[k] == ts[k] else None),
                         "spread": ya[k] - yb[k], "kmove60": side_mid[k] - side_mid[j],
@@ -453,6 +495,14 @@ for grp in ["crypto", "commodity"]:
     sub["per_pos_c"] = (sub["total_$"] * 100 / (sub.n_train.fillna(0) + sub.n_test.fillna(0))).round(1)
     print(f"2b. {grp}: cents per position (both halves together) — hold vs time exits, by band and target")
     display(sub.pivot_table(index=["buy", "up"], columns="exit", values="per_pos_c").reindex(columns=list(EXITS)))
+
+# %%
+# 2c. LATE START — wait, then buy the side that is still leading (window minute 6-13, no filter, hold)
+for grp in ["crypto", "commodity"]:
+    sub = G[(G.markets == grp) & (G.window == "min 6-13") & (G["filter"] == "none") & (G.exit == "hold")]
+    if sub.empty: continue
+    print(f"2c. {grp} · late start (minute 6-13): cents per position, WORST of the two halves")
+    display(sub.pivot(index="buy", columns="up", values="worst_half_c").sort_index())
 
 # %%
 # 3. SETTINGS THAT MADE MONEY IN BOTH HALVES (at least MIN_N positions in each half)
