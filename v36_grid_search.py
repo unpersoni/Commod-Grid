@@ -1,12 +1,15 @@
 # %% [markdown]
-# # V36 Grid Search — which entry band, sell target, window and filter actually hold up?
+# # V36 Grid Search — which entry band, sell target, window, filter and exit actually hold up?
 #
 # Replays the bot rules (buy a side whose ask is in a band, sell when its bid reaches a target,
 # else hold to settlement; ONE trade per market) on every market in your tick logs — the V36/V35
 # files first, then the older bots' files for extra markets.
 #
-# Grid: entry bands 23-27c ... 73-77c (5c steps) x sell targets +5 ... +25c x buy windows
-# (minute 0-3, 0-6, 0-9, 0-12) x filters:
+# Grid: entry bands 23-27c ... 73-77c (5c steps) x sell targets +5 ... +30c x buy windows
+# (minute 0-3, 0-6, 0-9, 0-12) x exits x filters.
+# Exits: hold   - not sold at the target -> held to settlement ($1 or $0)
+#        exit10 / exit12 / exit14 - not sold by minute 10 / 12 / 14 -> sold at the bid then
+# Filters:
 #   none            - plain rules
 #   kalshi_with     - the bought side's price rose 2c+ over the last 60s (moving our way)
 #   kalshi_against  - the bought side's price fell 2c+ over the last 60s
@@ -57,9 +60,10 @@ TRAIN_FRAC = 0.6
 MIN_N      = 40        # positions needed in EACH half for a setting to count
 
 BANDS   = [(lo, lo + 4) for lo in range(23, 74, 5)]          # 23-27 ... 73-77
-UPS     = [5, 10, 15, 20, 25]                                 # sell target = band middle + this
+UPS     = [5, 10, 15, 20, 25, 30]                             # sell target = band middle + this
 WINDOWS = {"min 0-3": (900, 720), "min 0-6": (900, 540), "min 0-9": (900, 360), "min 0-12": (900, 180)}
 FILTERS = ["none", "kalshi_with", "kalshi_against", "spot_with"]
+EXITS   = {"hold": None, "exit10": 300, "exit12": 180, "exit14": 60}   # sell at the bid once s2c <= this
 K_MOVE  = 2            # cents, Kalshi move over 60s for kalshi_with / kalshi_against
 S_MOVE  = 0.01         # %, spot move over 60s for spot_with
 
@@ -130,6 +134,11 @@ for fi, path in enumerate(TICK_FILES):
     span = (f"{dt.datetime.fromtimestamp(first_ts, dt.timezone.utc):%b %d %H:%M} -> {dt.datetime.fromtimestamp(last_ts, dt.timezone.utc):%b %d %H:%M} UTC"
             if first_ts else "no timestamps")
     print(f"{os.path.basename(path)}: {len(TID) - n0:,} rows, {span} ({time.time() - t0:.0f}s)")
+    if len(TID) == n0:
+        with open(path, "rb") as fh: head = fh.read(4096)
+        size = os.path.getsize(path)
+        print(f"   !! {size:,} bytes but no usable rows. First bytes: {head[:160]!r}  "
+              f"(NUL bytes in first 4KB: {head.count(0)})")
 if not len(TID): raise SystemExit("No tick rows found.")
 
 TID, YB, YA, S2C, SPOT, TS = (np.frombuffer(a, dtype=d) for a, d in
@@ -244,13 +253,23 @@ def entry(m, lo, hi, wf, wu, filt):
     k = int(c[0])
     return k, bool(yes_p[k])
 
-def outcome(m, k, yes, target):
+def outcome(m, k, yes, target, exit_s=None):
+    """(buy price, sold at target?, net cents). exit_s: if not sold at the target before
+    s2c <= exit_s, sell at the bid at the first tick from then on (only if bought before it)."""
+    s = m["s"]
     px = float(m["ya"][k] if yes else 100 - m["yb"][k])
     bid = m["yb"] if yes else 100 - m["ya"]
-    up = np.flatnonzero(bid[k + 1:] >= target)
+    end = len(s)
+    if exit_s is not None and s[k] > exit_s:
+        e = np.flatnonzero(s[k + 1:] <= exit_s)
+        end = k + 1 + int(e[0]) if len(e) else len(s)
+    up = np.flatnonzero(bid[k + 1:end] >= target)
     if len(up):
         sp = float(bid[k + 1 + int(up[0])])
         return px, True, (sp - px) * LOTS - fee(px) - fee(sp)
+    if end < len(s):                                   # time exit: sell at the bid
+        sp = float(bid[end])
+        return px, False, (sp - px) * LOTS - fee(px) - (fee(sp) if sp > 0 else 0)
     won = m["yes_won"] == yes
     return px, False, ((100 if won else 0) - px) * LOTS - fee(px)
 
@@ -286,10 +305,12 @@ for mi, m in enumerate(markets):
                 e = entry(m, lo, hi, wf, wu, filt)
                 if e is None: continue
                 k, yes = e
-                res = [outcome(m, k, yes, tg) for tg in targets]
-                for up, (px, sold, net) in zip(UPS, res):
-                    a_ = acc[(f"{lo}-{hi}", up, wname, filt, cr, m["part"])]
-                    a_[0] += 1; a_[1] += net; a_[2] += sold
+                res_x = {xn: [outcome(m, k, yes, tg, xs) for tg in targets] for xn, xs in EXITS.items()}
+                res = res_x["hold"]
+                for xn, rr in res_x.items():
+                    for up, (px, sold, net) in zip(UPS, rr):
+                        a_ = acc[(f"{lo}-{hi}", up, wname, filt, xn, cr, m["part"])]
+                        a_[0] += 1; a_[1] += net; a_[2] += sold
                 if wname == "min 0-12" and filt == "none":
                     s, yb, ya, ts = m["s"], m["yb"], m["ya"], m["ts"]
                     sg = 1 if yes else -1
@@ -312,10 +333,12 @@ for mi, m in enumerate(markets):
                         "btc_chg60": sg * m["bchg"][k] if m["bchg"][k] == m["bchg"][k] else None,
                         "won_settle": m["yes_won"] == yes,
                         **{f"net_up{up}": net for up, (_, _, net) in zip(UPS, res)},
+                        **{f"net_up{up}_{xn}": net for xn, rr in res_x.items() if xn != "hold"
+                           for up, (_, _, net) in zip(UPS, rr)},
                         **{f"sold_up{up}": sold for up, (_, sold, _) in zip(UPS, res)}})
     if mi % 1000 == 999: print(f"  {mi + 1:,} markets ({time.time() - t1:.0f}s)")
 R = pd.DataFrame([(*k, n, tot, sold) for k, (n, tot, sold) in acc.items()],
-                 columns=["buy", "up", "window", "filter", "crypto", "part", "n", "total", "sold"])
+                 columns=["buy", "up", "window", "filter", "exit", "crypto", "part", "n", "total", "sold"])
 print(f"{int(R.n.sum()):,} simulated positions in {time.time() - t1:.0f}s")
 E = pd.DataFrame(ent); del ent
 E.to_csv(OUT_ENTRIES, index=False, compression="gzip")
@@ -323,7 +346,7 @@ print(f"saved {len(E):,} entries with factors -> {os.path.basename(OUT_ENTRIES)}
 
 def agg(df):
     if df.empty: return pd.DataFrame()
-    g = df.groupby(["buy", "up", "window", "filter", "part"])[["n", "total", "sold"]].sum()
+    g = df.groupby(["buy", "up", "window", "filter", "exit", "part"])[["n", "total", "sold"]].sum()
     g["sold"] = g["sold"] / g["n"]
     w = g.unstack("part")
     w = w.reindex(columns=pd.MultiIndex.from_product([["n", "total", "sold"], ["train", "test"]]))
@@ -340,11 +363,20 @@ G = pd.concat([agg(R[R.crypto]).assign(markets="crypto"), agg(R[~R.crypto]).assi
 G.to_csv(OUT_GRID, index=False)
 for grp in ["crypto", "commodity"]:
     for filt in ["none", "kalshi_with"] + (["spot_with"] if grp == "crypto" else []):
-        sub = G[(G.markets == grp) & (G.window == "min 0-12") & (G["filter"] == filt)]
+        sub = G[(G.markets == grp) & (G.window == "min 0-12") & (G["filter"] == filt) & (G.exit == "hold")]
         if sub.empty: continue
         print(f"2. {grp} · window 0-12 · filter {filt}: cents per position, WORST of the two halves "
               f"(rows = entry band, columns = sell target above the band middle)")
         display(sub.pivot(index="buy", columns="up", values="worst_half_c").sort_index())
+
+# %%
+# 2b. DOES DUMPING UNSOLD POSITIONS BEFORE SETTLEMENT HELP? (crypto, window 0-12, no filter)
+for grp in ["crypto", "commodity"]:
+    sub = G[(G.markets == grp) & (G.window == "min 0-12") & (G["filter"] == "none")].copy()
+    if sub.empty: continue
+    sub["per_pos_c"] = (sub["total_$"] * 100 / (sub.n_train.fillna(0) + sub.n_test.fillna(0))).round(1)
+    print(f"2b. {grp}: cents per position (both halves together) — hold vs time exits, by band and target")
+    display(sub.pivot_table(index=["buy", "up"], columns="exit", values="per_pos_c").reindex(columns=list(EXITS)))
 
 # %%
 # 3. SETTINGS THAT MADE MONEY IN BOTH HALVES (at least MIN_N positions in each half)
