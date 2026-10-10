@@ -32,6 +32,17 @@ Kept up to date as data comes in. Every number names its source.
   - Not different: buy price, minute, open lean, book depth, open positions, cycle clustering, coin.
 - Caveat: one evening, split at the peak (exaggerates differences).
 
+## Time of day, all saved data (checked Oct 10)
+Sources: real trades V34b, V34c, V35a, V36a, V36b-old, V36b, V37 (4,915 trades, Oct 1-10) and the grid's
+simulated V37 rule (591 positions, Sep 29 - Oct 8). Blocks in ET: day 9am-6pm, evening 6pm-12am, night 12am-9am.
+- Crypto, real trades (edge = points above/below the price's implied win rate): day +0.5 (1,557),
+  evening -0.7 (1,090), night -4.5 (411). V37 rule replayed: day +38c/pos (299), evening +33c (192),
+  night -22c (100). Evening worse than the same day's daytime in 8 of 13 day comparisons.
+  Both Fridays dropped in the evening (Oct 2: +4.1 -> -7.5; Oct 9: +13.7 -> -5.6) — only two Fridays.
+  Night (12am-9am ET) is the consistently weak block (matches the 04-08 UTC weakness in V36).
+- Commodities: day -2.2, evening -8.9 (841 trades), night -4.7; evening worse on 4 of 5 days.
+  Likely cause: CME metals/oil pause 5-6pm ET, then a thin evening session (wider spreads).
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
