@@ -59,6 +59,15 @@ Hold to settlement, or sell back when the bid returns to H. Edge = win% minus av
   Sat/Sun were -0.7/-0.8 (H=95 D=15). BTC -2.9. The best of 35 settings landing at +1.5 SE is expected by chance.
 - Same price, different history (first time the ask reached a price, split by how high the bid had been
   before): no consistent pattern in crypto or commodities.
+- By time left at the dip (one buy per market/side/high; edge = win% - price; [1st/2nd half]):
+  - Crypto, reached 80c, dip bought with 10-15 min left: dip 5-8c +3.9 (183) [+6/+1], 10-13c +8.5 (125) [+12/+3],
+    15-25c +13.1 (74) [+18/+5]. Reached 90c, dip 5-8c, 10-15 min left: +11.6 (40). Same idea as the early-mover
+    finding: a side that hits 80-90c within the first 5 minutes is strong, and an early dip is worth buying.
+  - Crypto, reached 95c, dip bought with 2-5 min left: +3.6 (146) [+4/+3], +5.8 (101) [+6/+5], +7.6 (75) [+8/+8].
+  - Last 2 minutes: no edge in crypto (80c dips -6 to +0; 90c +1 to +3; 95c -4 to +1). Dips near the close are
+    NOT better than their price. Crypto 80c dips with 5-10 min left: -4 to -6. Commodities: mostly negative.
+  - About 60 cells checked over 4 days, so single cells can be luck; the two pockets above hold across all
+    dip sizes and both halves. Re-test on the full V37 week.
 - Conclusion: no mean reversion after dips in this data; a dip's price is a fair price. Re-test H=95 dips
   (weekday vs weekend) on the full V37 week.
 
