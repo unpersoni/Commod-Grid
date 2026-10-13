@@ -43,6 +43,25 @@ simulated V37 rule (591 positions, Sep 29 - Oct 8). Blocks in ET: day 9am-6pm, e
 - Commodities: day -2.2, evening -8.9 (841 trades), night -4.7; evening worse on 4 of 5 days.
   Likely cause: CME metals/oil pause 5-6pm ET, then a thin evening session (wider spreads).
 
+## Dip buying after a high (checked Oct 13, user's idea)
+Question: if a side's price reached H (e.g. 90c) and later dips to H-10, does it still win like a 90c side?
+Source: V37 hourly tick files on Drive (54 files, Oct 9 18:00 - Oct 13 00:00 UTC, 1.14M valid rows),
+1,521 markets with an official result from `commod15min_v37_settlements.csv`. Rule simulated: the side's
+bid reached H, then its ask fell to <= H-D with >= 30s left -> buy at the ask (one buy per market/side/setting).
+Hold to settlement, or sell back when the bid returns to H. Edge = win% minus average buy price.
+- User's example, crypto H=90 D=10: 395 buys at 75.5c average, won 76.2% (edge +0.7 +/- 2.1).
+  It wins like a 76c position, not a 90c one. Net -1.3c/trade holding, -4.5c selling back at 90.
+- All 35 crypto settings: edge between -3.2 and +4.6. Pooled crypto -0.7 (17,173 buys), commodities -1.8 (5,731).
+- Selling back at the old high was worse than holding in every crypto setting (fees on both legs,
+  and the dips that never recover are mostly losers).
+- Only weak candidate: crypto H=95, D=10-25 (edge +2.9 to +4.6, 122-228 buys, about 1.2-1.5 standard errors).
+  Positive in both halves, but all of it came from Fri Oct 9 (+10.1) and Mon Oct 12 (+13.0);
+  Sat/Sun were -0.7/-0.8 (H=95 D=15). BTC -2.9. The best of 35 settings landing at +1.5 SE is expected by chance.
+- Same price, different history (first time the ask reached a price, split by how high the bid had been
+  before): no consistent pattern in crypto or commodities.
+- Conclusion: no mean reversion after dips in this data; a dip's price is a fair price. Re-test H=95 dips
+  (weekday vs weekend) on the full V37 week.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -55,7 +74,8 @@ simulated V37 rule (591 positions, Sep 29 - Oct 8). Blocks in ET: day 9am-6pm, e
 6. Commodity trend ideas: late-start windows (buy the side still leading after minute 4-6),
    favourite bands up to 97c, the 15-minute Pyth track from strikes + settlements.
 7. One direction per cycle (match the cycle majority or BTC's direction).
-8. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+8. Dip buying after a high: crypto H=95, D=10-25, weekday vs weekend (see section above).
+9. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
