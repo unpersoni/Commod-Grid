@@ -62,6 +62,23 @@ Hold to settlement, or sell back when the bid returns to H. Edge = win% minus av
 - Conclusion: no mean reversion after dips in this data; a dip's price is a fair price. Re-test H=95 dips
   (weekday vs weekend) on the full V37 week.
 
+## Price path vs win rate (checked Oct 13, user's point: same price, different 15-minute path)
+Source: same V37 ticks/settlements as above. Every first time a side's ask reached each 2c price level
+(30-95c, 30s-14.5m left), with the path known at that moment: lowest ask so far, highest bid so far,
+mid change over the last 30/60/180s. 66,065 moments in 1,521 markets.
+- Prior low ("it was at 45c earlier, now 56c"): no edge. Crypto by how far below it had been:
+  never 5c+ lower -0.2, 5-14c -0.3, 15-29c +0.3, 30c+ -2.3 (14,285, beyond 2 SE). Big earlier swings were if anything worse.
+- Prior high: no edge (see dip section).
+- Rising fast, overall: no edge (crypto rising 15c+ in 60s: -1.6). Late in the market (3-11 min left)
+  a fast rise was negative (-4 to -7 at 60-89c): late spikes overshoot.
+- The one path signal: crypto, first 4 minutes (11+ min left), price 60-89c, risen 15c+ in the last 60s.
+  One buy per market: 604 markets, 69.0c average, won 72.7%, edge +3.7 +/- 1.8 (2 SE), +1.7c/trade net
+  after fee (held to settlement). Halves +3.5 / +4.1. Days: Fri +10, Sat -3, Sun +6, Mon +4.
+  Same window risen only 5-15c: -0.5; not rising: +1.3. Commodities same window: +0.7 (228), H1 -12.5 / H2 +4.2.
+  This matches V37's own rule (58-67c in minutes 0-3): early strong movers are the edge we have.
+- Caveat: many cells were checked (5 price bands x 5 path buckets x 4 path types x 2 classes), so
+  any single +2 SE cell can be luck. This one is supported by 3 neighbouring price bands and both halves.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -75,7 +92,9 @@ Hold to settlement, or sell back when the bid returns to H. Edge = win% minus av
    favourite bands up to 97c, the 15-minute Pyth track from strikes + settlements.
 7. One direction per cycle (match the cycle majority or BTC's direction).
 8. Dip buying after a high: crypto H=95, D=10-25, weekday vs weekend (see section above).
-9. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+9. Early fast risers: crypto, first 4 minutes, 60-89c, risen 15c+ in the last 60s (alone and added to
+   the V37 rule); also sell at 90c vs hold for these.
+10. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
