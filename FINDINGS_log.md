@@ -119,7 +119,10 @@ k fitted on the 1st half (k=1.25); everything judged on the 2nd half (497 market
 6. Commodity trend ideas: late-start windows (buy the side still leading after minute 4-6),
    favourite bands up to 97c, the 15-minute Pyth track from strikes + settlements.
 7. One direction per cycle (match the cycle majority or BTC's direction).
-8. Dip buying after a high: crypto H=95, D=10-25, weekday vs weekend (see section above).
+8. Dip buying after a high (user is tracking these; see section above). Crypto, dip bought with 10-15 min left:
+   reached 80c, dip 10-13c (+8.5, 125 buys); reached 80c, dip 15-25c (+13.1, 74); reached 90c, dip 5-8c (+11.6, 40;
+   too few to split into halves). Also reached 95c, dip 10-25c with 2-5 min left. Re-test each on the full V37 week:
+   win% vs price, net after fees, both halves, by coin, weekday vs weekend.
 9. Early fast risers: crypto, first 4 minutes, 60-89c, risen 15c+ in the last 60s (alone and added to
    the V37 rule); also sell at 90c vs hold for these.
 10. Outside-information signals (priority): spot-vs-strike model gap (alone and with the V37 rule);
