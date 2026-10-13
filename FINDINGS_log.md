@@ -79,6 +79,25 @@ mid change over the last 30/60/180s. 66,065 moments in 1,521 markets.
 - Caveat: many cells were checked (5 price bands x 5 path buckets x 4 path types x 2 classes), so
   any single +2 SE cell can be luck. This one is supported by 3 neighbouring price bands and both halves.
 
+## Outside information: spot-vs-strike model vs Kalshi price (checked Oct 13)
+User's point: search for signals from outside the Kalshi price. Earlier tests mostly used Kalshi's own
+price (bands, dips, momentum), which every trader sees. This is the first test that uses outside data.
+Source: V37 ticks (Coinbase spot ~1/s in `spot_px`), strikes (`floor_strike`) and results from
+`commod15min_v37_settlements.csv`; 1,017 crypto markets, 632,835 ticks with 30s-14.5m left.
+Model: chance YES wins = Phi(k * ln(spot/strike) / sqrt(15-min realized variance per second * seconds left)).
+k fitted on the 1st half (k=1.25); everything judged on the 2nd half (497 markets, from Oct 11 05:14 UTC).
+- Accuracy (log-loss, lower is better), 2nd half: Kalshi mid 0.4911, spot model alone 0.4973,
+  Kalshi + spot blend 0.4857. Spot adds real information beyond Kalshi's price (weights: Kalshi 0.89, spot 0.19).
+  Gains were at 3-15 min left; in the last 3 minutes Kalshi was already as good.
+- Trading on the gap (buy the side when model% - ask >= threshold, first time per market/side, hold):
+  - Spot model alone, gap >= 15: H1 455 buys edge +3.4, net +1.6c; H2 298 buys edge +3.4, net +1.6c.
+    Same in both halves; mostly buying 38-41c sides that spot says are ~57%.
+  - Blend, gap >= 8: H1 +7.2 (155), H2 +4.7 (101), net +5.2c / +2.7c. Includes a constant fitted on H1
+    (tilt toward NO) that may be that half's market direction.
+  - Blend without the constant: H2 fell apart at gaps >= 8 (49 buys, -7.0).
+- Conclusion: outside data carries a small, real signal; after fees it's worth about +1.5 to +3c per trade
+  on these 4 days. Not yet a strategy. Caveat: Kalshi settles on CF Benchmarks, not Coinbase.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -94,7 +113,10 @@ mid change over the last 30/60/180s. 66,065 moments in 1,521 markets.
 8. Dip buying after a high: crypto H=95, D=10-25, weekday vs weekend (see section above).
 9. Early fast risers: crypto, first 4 minutes, 60-89c, risen 15c+ in the last 60s (alone and added to
    the V37 rule); also sell at 90c vs hold for these.
-10. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+10. Outside-information signals (priority): spot-vs-strike model gap (alone and with the V37 rule);
+    order-book imbalance (book_ files); trade flow from prints (who is buying, size bursts); BTC spot leading
+    alt-coin Kalshi prices; cross-coin agreement within a cycle. Fit on the first part, judge on the rest.
+11. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
