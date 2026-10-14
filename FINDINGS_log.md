@@ -115,6 +115,23 @@ k fitted on the 1st half (k=1.25); everything judged on the 2nd half (497 market
 - Conclusion: outside data carries a small, real signal; after fees it's worth about +1.5 to +3c per trade
   on these 4 days. Not yet a strategy. Caveat: Kalshi settles on CF Benchmarks, not Coinbase.
 
+## V37 so far + flipping during losing streaks (checked Oct 14)
+Source: V37's rule replayed on V37 ticks (Oct 9 18:00 - Oct 13 00:45 UTC). The replay matches the real V37 trades
+(Oct 9-10 file) on win/loss for 97% of trades; it's slightly pessimistic on fees (~$37 over the period).
+- V37 replay: 954 trades, -5.1c per contract, about -$450 at 10 contracts. Lost every ET day:
+  Fri -105c/contract (185 trades; the real Fri run was +$31.66 because it ran to 00:15 Sat), Sat -845 (282),
+  Sun -1,715 (264), Mon -2,172 (223). The grid's +26c/position for this rule has not held up live so far.
+- Inverse (buy the other side, 38-42c, sell 70c) on the same markets: -2.5c per contract.
+- Counting recent losses does NOT predict the next trade: after 4 of the last 5 lost, V37 did better (+5.3c, 92);
+  after 3 in a row it did worse (-13.5c, 106), after 4+ in a row better (+1.9c, 167). No usable pattern.
+- Rolling last-hour P&L is the best flip signal found: when V37's trades closed in the last 60 min total
+  < -200c per contract (~ -$20 at 10 contracts), the next 317 V37 trades lost -11.4c; the inverse made +1.8c
+  (sell 70) / +3.8c (hold). Flipping on that signal: -670 vs V37 -4,837 (c/contract), better in both halves and
+  on all 4 days. Pausing instead: -1,227. So most of the gain is from not trading V37 in bad hours; the inverse
+  itself is close to break-even. Thresholds -100 and -300 were weaker, and V37 after a +50..+150 hour was the
+  worst bucket (-16.4c, 91), so the pattern is noisy. 4 days only.
+- User's live test: V37 and V37b (no files) running together; watch whether V37b's wins cluster in V37's bad hours.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -136,7 +153,9 @@ k fitted on the 1st half (k=1.25); everything judged on the 2nd half (497 market
 10. Outside-information signals (priority): spot-vs-strike model gap (alone and with the V37 rule);
     order-book imbalance (book_ files); trade flow from prints (who is buying, size bursts); BTC spot leading
     alt-coin Kalshi prices; cross-coin agreement within a cycle. Fit on the first part, judge on the rest.
-11. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+11. Session switch: flip to the inverse (or pause) when V37's last-60-min P&L < -200c/contract; re-test on the
+    full week with thresholds fixed in advance.
+12. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
