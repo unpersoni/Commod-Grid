@@ -10,6 +10,14 @@ Kept up to date as data comes in. Every number names its source.
 - Logs: `commod15min_v37_trades.csv`, `commod15min_v37_settlements.csv`, and
   `commod15min_v37_data/` (ticks_/book_/prints_ per UTC hour, compressed to .csv.gz when the hour ends).
 
+## V37b (built Oct 14, user's idea: V37 inverted)
+- Crypto only, paper: buy a side at 38-42c (the underdog) in minutes 0-3, sell when its bid reaches 70c, else hold
+  to settlement; one trade per market, no buy if spread > 5c, no stops. Same window/limits as V37.
+- Not the exact mirror of V37 (that would be: buy the underdog, hold, and stop out at ~10c). The 70c sell is a
+  profit target 20c below V37's 90c, matching the entry being ~20c lower.
+- Logs: `commod15min_v37b_trades.csv`, `commod15min_v37b_settlements.csv`, `commod15min_v37b_data/` (ticks only;
+  book and prints are left to V37 to save Drive space; `RECORD_BOOK_PRINTS = True` turns them on).
+
 ## Where the 58-67c -> 90c rule came from
 - v36_grid_search on 1,048 markets (Sep 29 - Oct 8): 591 crypto positions, +26c/position,
   +25c first half / +28c second half, +$155. Positive 4 of 6 full days; BTC +79c, ETH +40c, DOGE +34c,
