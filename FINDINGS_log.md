@@ -15,8 +15,8 @@ Kept up to date as data comes in. Every number names its source.
   to settlement; one trade per market, no buy if spread > 5c, no stops. Same window/limits as V37.
 - Not the exact mirror of V37 (that would be: buy the underdog, hold, and stop out at ~10c). The 70c sell is a
   profit target 20c below V37's 90c, matching the entry being ~20c lower.
-- Logs: `commod15min_v37b_trades.csv`, `commod15min_v37b_settlements.csv`, `commod15min_v37b_data/` (ticks only;
-  book and prints are left to V37 to save Drive space; `RECORD_BOOK_PRINTS = True` turns them on).
+- No files at all (user's choice): results are only printed in the Colab output, so V37b runs can't be analysed
+  later unless the user pastes the output. `SAVE_FILES = True` turns on V37-style files.
 
 ## Where the 58-67c -> 90c rule came from
 - v36_grid_search on 1,048 markets (Sep 29 - Oct 8): 591 crypto positions, +26c/position,
