@@ -204,6 +204,17 @@ Biggest LOSS: Sun 3:15-8:30pm ET, -$253.6 (101 trades). Conditions matched to th
   inverse side doesn't make money in those hours. Cuts losses, doesn't make V37 profitable. Fine buckets are noisy.
 - Compare with V37's own last-60-min P&L switch (Oct 14-15 note): there flip beat pause on new data (+449).
 
+## Reversal signal: start-up and look-back length (checked Oct 15)
+- Start-up: the market-wide reversal signal needs no trades -- only the last markets' results and the leader at
+  minute 3, which a bot can fetch from Kalshi's market history at start (to verify when building: trade history /
+  per-minute candles). V37's own-P&L signal can also be computed from shadow trades instead of real ones.
+- Look-back length (V37 replay, pause when the share of reversed minute-3 leaders >= 30% / 40%; every market counts
+  equally and a full window is required, so totals differ a little from the earlier 4-cycle average version):
+  15 min: paused trades -4.5c vs kept -4.3c (no separation); 30 min: -4.1 vs -4.7; 45 min: -3.7 vs -5.0 / -6.4 vs -3.5;
+  60 min: -5.6 vs -3.2 (30%), -8.5 vs -3.0 (40%); 90 min: -5.2 vs -3.7; 2 h: -7.8 vs -2.2 (30%), -8.5 vs -3.6 (40%).
+  Shorter look-backs are noise; it takes ~1 h or more of markets to tell a reversing market from bad luck.
+  Kept trades are still negative (-2.2 to -3.6c/contract): the switch cuts losses, doesn't make V37 profitable.
+
 ## Spot distance / direction cutoffs for V37 (user's idea, checked Oct 15)
 Source: V37 real trades in WIN/LOSS phases (1,417), spot vs strike logged by the bot at each buy (own coin, oriented:
 + = spot already on our side), own coin 60s move, BTC's own spot vs its strike and 60s move (both oriented to our side).
