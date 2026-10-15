@@ -186,6 +186,24 @@ then judged on Tue 8pm - Wed 9pm (never used to choose).
   together. Cluster effect, not an edge.
 - No setting built on the 12 conditions beat the market on its own outside the 88-95c / minutes 0-3 pocket.
 
+## V37 winning vs losing phases (checked Oct 15)
+Source: V37 real trades (1,425, Fri Oct 9 - Thu Oct 15; rule 58-67c in minutes 0-3, sell 90c). Phases: running $
+total reverses by $20+ (10 contracts) -> new phase; >60 min gap -> new session. 28 WIN phases (+$1,298, 766
+trades, 37 h) and 25 LOSS phases (-$1,722, 651 trades, 30 h), alternating through every day, 0.5-5 h long.
+Biggest LOSS: Sun 3:15-8:30pm ET, -$253.6 (101 trades). Conditions matched to the grid definitions (95% of trades).
+- Entry conditions barely differ (most within 5 points). Largest: rising over 30s 95% of LOSS-phase buys vs 85% of WIN;
+  BTC spot moving our way 67% vs 57% (BTC flat 25% vs 36%); spread 1c 88% vs 77% (opposite of the Oct 9 hint).
+  Losing phases look like chasing moves that then reverse. No single condition separates the phases.
+- Market-wide (all 5 coins per cycle): share of markets whose minute-3 leader lost = 37.6% in LOSS phases vs 23.8% in
+  WIN; price crossed 50c 11.1 vs 9.0 times per market; minute-3 leader 15.2c vs 18.0c from 50.
+- Known before the trade (previous hour's markets): reversal share low/mid/high (<25% / 25-35% / >35%) -> V37
+  -$0.13 / -$0.39 / -$0.81 per trade (10 contracts); Fri-Mon -0.16/-0.37/-0.81, Tue-Wed -0.10/-0.44/-0.79.
+  Same order in both periods. Other measures (crossings, swing, spread, lead, coin agreement) not consistent.
+- As a switch (replay, c per contract): pause V37 when last hour's reversals >= 30%: -1,458 vs V37 -5,831
+  (Fri-Mon -1,367 vs -4,602; Tue-Wed -91 vs -1,229). Flipping instead was worse than pausing (-2,695): the
+  inverse side doesn't make money in those hours. Cuts losses, doesn't make V37 profitable. Fine buckets are noisy.
+- Compare with V37's own last-60-min P&L switch (Oct 14-15 note): there flip beat pause on new data (+449).
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
