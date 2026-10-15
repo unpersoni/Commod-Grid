@@ -33,3 +33,8 @@ market opened, spot vs strike, spot and BTC moves, open positions, cycle, streak
 ## v37_ticks/ — every V37 tick file (one per UTC hour, gzipped, 75 files, Oct 9 18:00 - Oct 15 01:00 UTC)
 Columns: ts_iso, ticker, asset, yes_bid, yes_ask, sec_to_close, spot_px (Coinbase, crypto only). All 11 markets.
 Row counts were checked against the Drive originals. V37's book_ and prints_ files are not saved here.
+
+## v37_book/ — V37 order-book files (one per UTC hour, gzipped, 70 files, Oct 9 18:00 - Oct 14 19:00 UTC)
+Columns: ts_iso, ticker, asset, sec_to_close, yes_bids, no_bids ("price:qty;price:qty;..." best level first).
+Written about every 2 s for all 11 markets. The bot stopped writing book data after Oct 14 19:13 UTC.
+V37's trade prints were not saved (about 350 MB, never analysed); they were deleted from Drive on Oct 15.
