@@ -12,6 +12,7 @@ All paper trading on Kalshi 15-minute markets. Times in the files are UTC.
 | commod15min_v36b_trades.csv | V36b (first version) | buy 37-42c, sell 62c | Oct 3-4 |
 | commod15min_v36b2_trades.csv | V36b (second version) | buy 38-42c, sell 55c, minute 0-12 | Oct 4-9 |
 | commod15min_v37_trades_2026-10-10.csv | V37 | crypto only, buy 58-67c in minute 0-3, sell 90c | Oct 9-10 (snapshot) |
+| commod15min_v37_trades.csv | V37 | same | Oct 9-15 (1,425 trades, full file as of Oct 15) |
 
 V35 onwards include the entry factor columns (minute, spread, 30/60s price direction, speed, how the
 market opened, spot vs strike, spot and BTC moves, open positions, cycle, streak; V36+ also book depth).
@@ -19,6 +20,7 @@ market opened, spot vs strike, spot and BTC moves, open positions, cycle, streak
 ## settlements/ — Kalshi's official result per market
 - settlements_v33_v34b_v34c.csv — combined, de-duplicated (889 markets, Sep 30 - Oct 2), with a `cycle` column.
 - commod15min_v36a_settlements.csv, commod15min_v36b2_settlements.csv — Oct 3-9.
+- commod15min_v37_settlements.csv — all 11 markets, Oct 9-15 (2,530 markets, with strike and final price).
 
 ## grid/ — results of v36_grid_search on 1,048 markets (Sep 29 - Oct 8)
 - v36_grid.csv — every setting (band x target x window x filter x exit), per half and total.
@@ -27,3 +29,7 @@ market opened, spot vs strike, spot and BTC moves, open positions, cycle, streak
 
 ## ticks/
 - commod15min_v35b_ticks.csv.gz — one day of prices (Oct 2-3); the only raw tick file left.
+
+## v37_ticks/ — every V37 tick file (one per UTC hour, gzipped, 75 files, Oct 9 18:00 - Oct 15 01:00 UTC)
+Columns: ts_iso, ticker, asset, yes_bid, yes_ask, sec_to_close, spot_px (Coinbase, crypto only). All 11 markets.
+Row counts were checked against the Drive originals. V37's book_ and prints_ files are not saved here.

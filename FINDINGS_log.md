@@ -132,6 +132,24 @@ Source: V37's rule replayed on V37 ticks (Oct 9 18:00 - Oct 13 00:45 UTC). The r
   worst bucket (-16.4c, 91), so the pattern is noisy. 4 days only.
 - User's live test: V37 and V37b (no files) running together; watch whether V37b's wins cluster in V37's bad hours.
 
+## Out-of-sample check on new data (checked Oct 15)
+New data never used to find any candidate: V37 ticks Tue Oct 13 8pm - Wed Oct 14 9pm ET (405 crypto markets),
+real V37 trades Tue-Thu (448). All thresholds fixed in advance from Fri-Mon. V37 recorded 75 hours in total
+since Fri Oct 9 (gaps: three overnights Sat/Sun/Mon 1-9am, Mon 9pm-Tue 8pm, Wed 8am-12pm, and Wed 9pm-Thu 12am
+when the trades logged but the tick files never reached the full Drive).
+- HELD: session switch (last-60-min V37 P&L < -200c/contract). New: V37 -1,066 / pause +276 / flip +449
+  (c per contract, 387 replayed trades, 154 fired; flipped trades V37 -8.7c, inverse +1.1c). Second confirmation.
+- FAILED: early fast riser (new -1.7 edge, 282); spot gap >= 15 (new -1.7, 212); blend gap >= 8 (new -7.9, 48);
+  the blend was worse than Kalshi's price on new data (log-loss 0.4916 vs 0.4876).
+- FADED: dips after a high. 80c-then-dip 10-15m left: +2.7 / +0.4 / +3.0 (was +3.9 / +8.5 / +13.1);
+  95c-then-dip 2-5m left: +1.2 / +3.6 / -0.1. Only 90c-then-dip 5-8c, 10-15m left stayed up: 18 of 18 won (+17.2),
+  too few to count.
+- Spread 1c vs 2c+ (real trades): new 1c +0.3c/trade (419) vs 2c+ -9.0 (29); but on all Fri-Mon trades no
+  difference (-4.3 vs -4.0). Not reliable.
+- Time of day (real trades, ET) flipped between periods: night +5.9 -> -6.4, day -4.3 -> +8.8. No pattern.
+- V37 real total: 1,425 trades, -$428.78 (Fri-Mon -$414.34, Tue-Thu -$14.44). By ET day: Fri +7.58, Sat -84.67,
+  Sun -161.53, Mon -175.72, Tue +0.93, Wed -15.37.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
