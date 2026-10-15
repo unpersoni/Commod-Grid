@@ -166,6 +166,21 @@ then judged on Tue 8pm - Wed 9pm (never used to choose).
   By day: Fri +10.9, Sat -9.7, Sun +10.6, Mon +1.0, Tue +11.0, Wed +8.1. Every coin positive. Per cycle: 94% of
   cycles positive, +5.6c +/- 3.0 (about 1.9 SE). Adding a condition (rising, coin/BTC spot with, book with) gave
   100% won on new data but on ~36 buys. A loss costs ~88c, so one extra loss per ~16 trades erases it.
+- Per coin (all data, one buy per market; 286 markets checked per coin): BTC 13 qualified, 92.3% won; ETH 25, 96.0%;
+  SOL 28, 96.4%; XRP 22, 90.9%; DOGE 30, 96.7%; all 118, 94.9%, +5.6c. Adding "rose 3c+ in 60s" (chosen after
+  looking): 112 qualified, 110 won (98.2%), +8.8c. Coin/BTC spot moving our way: same markets, 98.2% / 98.1%.
+  Book on our side: 95.3% (no help).
+- Dips after the buy (same 118): no winner stayed at 90c+; median low 80c (9c below the buy); 14 winners dipped
+  under 50c and still won; most lows came in minutes 0-3 (58) and 4-6 (26). All 6 losers held up and then fell to
+  1c in minutes 13-14. A stop-loss would have sold winners and rarely saved losers.
+- Dip shape (83 winners that dipped 5c+): straight down 16, 1 bounce 10, 2 bounces 16, 3-4 bounces 7, 5+ bounces 34.
+  After a "turned up" buy the price went below the earlier low 44-79% of the time.
+- Buy on the rebound (after the 88-95c signal, wait for the bid to fall D below it, buy at the ask when the bid is
+  R above its low, hold): dip 5/turn 2: 89 buys, 93.3%, 83.5c, +8.5c (+$75.50 at 10); dip 10/turn 3: 56, 89.3%,
+  +10.3c (+$57.50); dip 15/turn 8: 41, 85.4%, +13.0c (+$53.50); dip 20/turn 3: 34, 82.4%, +14.2c (+$48.30).
+  Positive in Fri-Mon and Tue-Wed for all 16 combinations. All 6 losers are bought in every version.
+  Better per trade, not more in total (only dip 5/turn 2 beat buying at the signal). Sizes chosen after looking.
+  Script: analysis/rebound.py.
 - Looked good but is not: crypto 30-39c in minutes 8-11 when other coins lean the other way. Per trade
   +6.1 / +2.5 / +2.0, but per cycle it averages 0.0c: it comes from a few cycles where several underdogs won
   together. Cluster effect, not an edge.
