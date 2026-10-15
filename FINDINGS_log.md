@@ -18,6 +18,21 @@ Kept up to date as data comes in. Every number names its source.
 - No files at all (user's choice): results are only printed in the Colab output, so V37b runs can't be analysed
   later unless the user pastes the output. `SAVE_FILES = True` turns on V37-style files.
 
+## V38 plan ("early favs", agreed Oct 15)
+- Crypto: buy 10 contracts of a side whose ask is 88-95c in the first 3 minutes (900-720 s before close), hold to
+  settlement; one trade per market; no buy if spread > 5c. (All V37 data: 118 trades, 94.9% won, +5.6c.)
+- Commodities: 85-95c in the first 8 minutes, hold. Chosen for volume at about break-even: 433 trades (45% of markets),
+  86.4% won, -0.4c/trade, Fri-Mon +1.8 / Tue-Wed -2.9. Narrower 88-95c first 4 min: 86 trades, 0.0c (+5.8 / -5.7);
+  85-95c first 6 min: 262, -2.4c; 80-95c first 6 min: 405, -2.7c; 80-95c first 8 min: 591, -2.4c.
+  (Note: "minutes 0-3" in the crypto rule = first 3 minutes, sec 900-720.)
+- Reversal guard (share of the last hour's markets whose minute-3 leader lost): computed at start-up from Kalshi
+  history if available, then live; every trade is still taken and labelled guard on/off.
+- Rebound entry: not traded live; replay from tick files.
+- Logging kept small: trades, settlements, hourly ticks always gzipped with top-of-book size added, trade flow summarised
+  per market per 15 s (no full book, no raw prints); warn when Drive < 200 MB free. Target ~10 MB/day.
+- Drive cleanup Oct 15: V37 data folder (ticks, book, prints, ~470 MB) moved to Drive Trash. Ticks and book saved in
+  data/; prints (~350 MB, never analysed) not saved.
+
 ## Where the 58-67c -> 90c rule came from
 - v36_grid_search on 1,048 markets (Sep 29 - Oct 8): 591 crypto positions, +26c/position,
   +25c first half / +28c second half, +$155. Positive 4 of 6 full days; BTC +79c, ETH +40c, DOGE +34c,
