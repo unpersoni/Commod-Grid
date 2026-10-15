@@ -248,6 +248,26 @@ Source: V37 ticks + settlements, 932 commodity and 1,395 crypto markets (Fri Oct
 - Grid (earlier): 22 commodity settings passed Fri-Mon, 36% positive on new data vs 23% for all. Commodities still
   have no edge in our data.
 
+## Full grid: 5c bands x 30-second windows x 13 conditions x 22 exits (run Oct 15, user's spec)
+Bands 10-14 ... 95-99c (18), windows 0:00-0:30 ... 14:30-15:00 (30), conditions as before (3 levels each + none),
+exits hold + sell targets +10 ... +50c in 2c steps (a target above 99c falls back to hold). First moment per
+market/side, buy at the ask, spread <= 5c, taker fees. All V37 data (1,430 crypto + 957 commodity markets).
+751,652 settings. Rule: positive in both Fri-Mon halves, then judged on Tue 8pm - Wed 9pm.
+Saved: data/grid/v37_biggrid_sums.csv.gz (summed buys / wins / net per exit for every cell and period).
+- Crypto (>= 20 buys per half, >= 10 new): 22,667 passed Fri-Mon; 44% positive on new data vs 25% for any setting;
+  9,994 positive in all three vs 3,592 expected by chance (neighbouring settings share markets, so this overstates).
+  Passers still averaged -1.6c/trade on new data (all settings -3.4c). Stricter (>= 40 / 20): 40% vs 24%.
+- Commodities: >= 20/10: 30% vs 13%, passers -2.65c; >= 40/20: 27 passed, 0 positive on new data.
+- Where crypto survivors cluster (share profitable in all three periods): by band 0.3-1.1% for 10-54c (at or below
+  chance), 2-4% for 55-84c, 10.6% 85-89c, 15.2% 90-94c, 34% 95-99c; by minute highest at 13-14 (10-12%) and 2-3 / 7-8;
+  hold 5.6% vs targets 2.1% (+10c) rising to 4.6% (+50c). Buying cheap sides never held up.
+- The zones as simple rules (first entry per market, crypto), hold, c/trade [Fri-Mon A / B / Tue-Wed]:
+  85-94c min 2-4: 441 buys, 87.5% won, +0.8 [+1.7 / -1.6 / +2.5]; 95-99c min 7-10: 637, 97.2%, +0.8 [+1.5 / +0.2 / +0.6];
+  70-94c min 13-14: 660, 85.0%, +0.7 [+1.9 / -1.5 / +2.0]; 85-94c min 13-14: 655, 90.8%, +0.9 [-0.8 / +3.3 / +0.3].
+  All about break-even (+$30-62 per 75 h at 10 contracts). Sell targets never beat holding; +10c was always worst.
+- The narrower 88-95c min 0-3 setting (+5.6c, 118 buys) is still the best single result, but widened to 85-94c min 0-4
+  it drops to +0.7c (450 buys): part of its +5.6c is likely luck of the exact cut.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
