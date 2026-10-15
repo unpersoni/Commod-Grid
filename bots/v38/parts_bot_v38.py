@@ -4,22 +4,24 @@ FEAT_COLS = ["minute_in_market", "spread_c", "side_mid_c", "dir30_c", "dir60_c",
              "spot_px", "strike", "spot_dist_pct", "spot_chg30_pct", "spot_chg60_pct", "btc_chg60_pct",
              "open_positions", "cycle_bought_before", "prev_result_same_asset",
              "book_bid_qty", "book_ask_qty", "book_bid_qty3", "book_ask_qty3",
-             "guard_share", "guard_markets", "guard_on", "guard_share_other_class"]
+             "guard_share", "guard_markets", "guard_on", "guard_share_other_class", "z_spot"]
 CRYPTO = {"BTC", "ETH", "SOL", "XRP", "DOGE"}
 def cls(a): return "crypto" if a in CRYPTO else "commodity"
 
 class Position:
-    def __init__(self, yes, px, s2c, n, feat):
-        self.yes, self.px, self.s2c, self.n, self.feat = yes, px, s2c, n, feat
+    def __init__(self, strat, yes, px, s2c, n, feat):
+        self.strat, self.yes, self.px, self.s2c, self.n, self.feat = strat, yes, px, s2c, n, feat
         self.iso = now_iso()
         self.low = px          # lowest bid seen while held
 
 class MarketState:
     def __init__(self):
-        self.pos = None
-        self.trades = 0
+        self.pos = {}                     # strategy -> open Position
+        self.done = set()                 # strategies that already traded this market
         self.hist = collections.deque()   # (time, yes_bid, yes_ask), last ~2 min
         self.first = None                 # (s2c, yes_bid, yes_ask) of the first price seen
+        self.prev = None                  # (yes_bid, yes_ask) at the previous evaluation
+        self.rb = None                    # rebound watch after an early-fav buy
 
 class HourlyCSV:
     """Appends rows to <folder>/<prefix>_YYYY-MM-DD_HH.csv (UTC), starting a new file every hour,
@@ -78,6 +80,13 @@ def main():
         print(f"rule ({c}): BUY {CONTRACTS} of a side whose ask is {rl['buy_min']}-{rl['buy_max']}c in the first "
               f"{(900 - rl['until_sec']) / 60:g} minutes (at the ask) · HOLD to settlement · "
               f"{MAX_TRADES_PER_MARKET} trade per market · no buy if spread > {MAX_SPREAD_C}c · Kalshi taker fees")
+    if REBOUND_ON:
+        print(f"rule (rebound, crypto): after an early-fav buy, when that side's bid falls {REBOUND_DIP_C}c below the buy price, "
+              f"BUY {CONTRACTS} more at the ask once the bid is {REBOUND_TURN_C}c above its low (>= {REBOUND_MIN_LEFT_SEC}s left) · HOLD")
+    if CROSS_ON:
+        print(f"rule (spot-confirmed cross, crypto): when a side's ask crosses {CROSS_LEVEL_C}c (to {CROSS_LEVEL_C}-{CROSS_MAX_C}c) while "
+              f"Coinbase spot is >= {CROSS_MIN_Z} normal moves past the strike on that side · BUY {CONTRACTS} · HOLD "
+              f"(needs ~5 min of spot history after start)")
     print(f"reversal guard: share of the last {GUARD_LOOKBACK_MIN} min of markets whose minute-3 leader lost; "
           f"ON at {GUARD_ON_SHARE:.0%}+ (trades are still taken and labelled)")
     fm = drive_free_mb(os.path.dirname(TRADES_CSV))
@@ -89,8 +98,9 @@ def main():
     lock = threading.RLock()
     markets, rest_px, state = {}, {}, {}
     settle_due, settled = {}, set()
-    run = {c: {"net": 0, "closed": 0, "sold": 0, "won": 0} for c in ("crypto", "commodity")}
-    run_off = {c: {"net": 0, "closed": 0, "won": 0} for c in ("crypto", "commodity")}   # guard OFF at buy
+    STRATS = [("fav", c) for c in ("crypto", "commodity")] + [("rebound", "crypto"), ("cross", "crypto")]
+    run = {k: {"net": 0, "closed": 0, "won": 0} for k in STRATS}
+    run_off = {k: {"net": 0, "closed": 0, "won": 0} for k in STRATS}   # guard OFF at buy
     lead3 = {}                       # ticker -> True (YES led) / False (NO led) / None, at 3 min in
     guard_hist = collections.deque() # (close time, class, reversed 0/1) of settled markets
     flow = {}                        # (ticker, bucket start) -> [n_yes, ct_yes, n_no, ct_no, sum_px_ct, last_px]
@@ -98,6 +108,12 @@ def main():
     cycle_buys = collections.defaultdict(set)   # market close time -> assets bought
 
     def open_csv(path, cols):
+        if os.path.exists(path):                       # a file from an older version with other columns: set it aside
+            with open(path, newline="") as fh0:
+                head = next(csv.reader(fh0), None)
+            if head is not None and head != cols:
+                old = path[:-4] + f"_old_{now():%Y%m%d_%H%M%S}.csv"
+                os.replace(path, old); print(f"[log] {os.path.basename(path)} had different columns — moved to {os.path.basename(old)}")
         new = not os.path.exists(path)
         fh = open(path, "a", newline="")
         w = csv.writer(fh)
@@ -175,24 +191,50 @@ def main():
         f["prev_result_same_asset"] = last_result.get(a, "none yet")
         return f
 
-    def record(t, st, p, sell_px, sell_s2c, result, reason):
+    def record(t, p, sell_px, sell_s2c, result, reason):
         fees = taker_fee_c(p.n, p.px) + (taker_fee_c(p.n, sell_px) if reason == "sold" else 0)
         net = (sell_px - p.px) * p.n - fees
-        r = run[cls(asset(t))]
-        r["net"] += net; r["closed"] += 1; r["won"] += int(net > 0)
-        if reason == "sold": r["sold"] += 1
+        key = (p.strat, cls(asset(t)))
+        r = run[key]; r["net"] += net; r["closed"] += 1; r["won"] += int(net > 0)
         if p.feat.get("guard_on") == 0:
-            ro = run_off[cls(asset(t))]; ro["net"] += net; ro["closed"] += 1; ro["won"] += int(net > 0)
-        last_result[asset(t)] = "win" if net > 0 else "loss"
+            ro = run_off[key]; ro["net"] += net; ro["closed"] += 1; ro["won"] += int(net > 0)
+        if p.strat == "fav": last_result[asset(t)] = "win" if net > 0 else "loss"
         feat = [p.feat.get(c) for c in FEAT_COLS]
         feat = [_r(v, 4) if isinstance(v, float) else ("" if v is None else v) for v in feat]
         with io_lock:
-            tw.writerow([t, asset(t), cls(asset(t)), "PAPER", st.trades, "YES" if p.yes else "NO", p.iso,
-                         round(p.s2c, 1), p.px, now_iso() if reason == "sold" else "",
-                         round(sell_s2c, 1) if sell_s2c is not None else "", sell_px, result,
+            tw.writerow([t, asset(t), cls(asset(t)), p.strat, "PAPER", "YES" if p.yes else "NO", p.iso,
+                         round(p.s2c, 1), p.px, "", "", sell_px, result,
                          reason, p.low, fees, net, r["net"]] + feat)
             tfh.flush()
         return net
+
+    def spot_z(t, yes, s2c):
+        """How many 'normal moves' spot is past the strike on this side (None if unknown)."""
+        a = asset(t); strike = markets.get(t, {}).get("strike")
+        sp = spot.price(a) if spot else None
+        v = spot.var_per_sec(a) if spot and hasattr(spot, "var_per_sec") else None
+        if not sp or not strike or not v or s2c <= 0: return None
+        z = math.log(sp / strike) / math.sqrt(v * s2c)
+        return z if yes else -z
+
+    def buy(t, st, strat, yes, ask, yb, ya, s2c, note=""):
+        c = cls(asset(t))
+        try:
+            feat = features(t, st, yes, yb, ya, s2c)
+        except Exception as e:
+            print(f"[features] {e}"); feat = {}
+        gs, gn, gon = guard(c)
+        other = guard("commodity" if c == "crypto" else "crypto")[0]
+        z = spot_z(t, yes, s2c) if c == "crypto" else None
+        feat.update(guard_share=None if gs is None else round(gs, 3), guard_markets=gn,
+                    guard_on="" if gon is None else gon, guard_share_other_class=None if other is None else round(other, 3),
+                    z_spot=None if z is None else round(z, 3))
+        st.pos[strat] = Position(strat, yes, ask, s2c, CONTRACTS, feat)
+        st.done.add(strat)
+        if strat == "fav": cycle_buys[markets[t]["close"]].add(asset(t))
+        gtxt = "guard warming up" if gs is None else f"guard {'ON' if gon else 'off'} ({gs:.0%} of {gn} reversed)"
+        say(f"BUY [{STRAT_NAMES[strat]}] {CONTRACTS}x {'YES' if yes else 'NO'} @ {ask}c  {asset(t)} ({c}) {t[-7:]}  "
+            f"{s2c:.0f}s left{note}  [{gtxt}]")
 
     def evaluate(t):
         px = prices(t)
@@ -202,40 +244,40 @@ def main():
         if not (0 <= yb < ya <= 100): return
         with lock:
             st = state.setdefault(t, MarketState())
-            p = st.pos
-            if p:                                           # holding: sell at the target
-                hb = yb if p.yes else 100 - ya
-                p.low = min(p.low, hb)
-                if SELL_AT_C is not None and hb >= SELL_AT_C:
-                    st.pos = None
-                    net = record(t, st, p, hb, s2c, "", "sold")
-                    say(f"SELL {p.n}x {'YES' if p.yes else 'NO'} @ {hb}c (bought {p.px}c)  net {net:+.0f}c  "
-                        f"{asset(t)} {t[-7:]}  {s2c:.0f}s left  {cls(asset(t))} run {run[cls(asset(t))]['net']:+.0f}c")
-                return
-            if st.trades >= MAX_TRADES_PER_MARKET: return
+            prev, st.prev = st.prev, (yb, ya)
+            for p in st.pos.values():                        # holding: track the lowest bid
+                p.low = min(p.low, yb if p.yes else 100 - ya)
             c = cls(asset(t))
             if c not in TRADE_CLASSES: return                  # recorded only, never traded
+            spread_ok = ya - yb <= MAX_SPREAD_C
+            # 1) early favs
             rl = RULES[c]
-            if not (rl["until_sec"] <= s2c <= rl["from_sec"]): return
-            if ya - yb > MAX_SPREAD_C: return
-            cands = [(ask, yes) for yes, ask in ((True, ya), (False, 100 - yb))
-                     if rl["buy_min"] <= ask <= rl["buy_max"]]
-            if not cands: return
-            if len(cands) == 2 and cands[0][0] == cands[1][0]: return   # both sides same price: wait
-            ask, yes = min(cands)                                       # the cheaper side
-            try:
-                feat = features(t, st, yes, yb, ya, s2c)
-            except Exception as e:
-                print(f"[features] {e}"); feat = {}
-            gs, gn, gon = guard(c)
-            other = guard("commodity" if c == "crypto" else "crypto")[0]
-            feat.update(guard_share=None if gs is None else round(gs, 3), guard_markets=gn,
-                        guard_on="" if gon is None else gon, guard_share_other_class=None if other is None else round(other, 3))
-            st.pos = Position(yes, ask, s2c, CONTRACTS, feat)
-            st.trades += 1
-            cycle_buys[markets[t]["close"]].add(asset(t))
-            gtxt = "guard warming up" if gs is None else f"guard {'ON' if gon else 'off'} ({gs:.0%} of {gn} reversed)"
-            say(f"BUY {CONTRACTS}x {'YES' if yes else 'NO'} @ {ask}c  {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left  [{gtxt}]")
+            if "fav" not in st.done and spread_ok and rl["until_sec"] <= s2c <= rl["from_sec"]:
+                cands = [(ask, yes) for yes, ask in ((True, ya), (False, 100 - yb)) if rl["buy_min"] <= ask <= rl["buy_max"]]
+                if cands and not (len(cands) == 2 and cands[0][0] == cands[1][0]):
+                    ask, yes = min(cands)
+                    buy(t, st, "fav", yes, ask, yb, ya, s2c)
+                    if c == "crypto" and REBOUND_ON:
+                        st.rb = {"yes": yes, "sig": ask, "low": 999, "armed": False}
+                    return
+            # 2) rebound: after an early-fav buy, the side dips REBOUND_DIP_C below the buy price, then turns up
+            rb = st.rb
+            if rb and "rebound" not in st.done:
+                hb = yb if rb["yes"] else 100 - ya
+                rb["low"] = min(rb["low"], hb)
+                if not rb["armed"] and hb <= rb["sig"] - REBOUND_DIP_C: rb["armed"] = True
+                if rb["armed"] and hb >= rb["low"] + REBOUND_TURN_C and s2c >= REBOUND_MIN_LEFT_SEC and spread_ok:
+                    ask = ya if rb["yes"] else 100 - yb
+                    buy(t, st, "rebound", rb["yes"], ask, yb, ya, s2c, f"  (dipped to {rb['low']}c, now {hb}c)")
+            # 3) spot-confirmed 90c cross
+            if CROSS_ON and c == "crypto" and "cross" not in st.done and prev and spread_ok and s2c > CROSS_MIN_LEFT_SEC:
+                pyb, pya = prev
+                for yes, now_a, prev_a in ((True, ya, pya), (False, 100 - yb, 100 - pyb)):
+                    if prev_a < CROSS_LEVEL_C <= now_a <= CROSS_MAX_C:
+                        z = spot_z(t, yes, s2c)
+                        if z is not None and z >= CROSS_MIN_Z:
+                            buy(t, st, "cross", yes, now_a, yb, ya, s2c, f"  (spot {z:.2f} normal moves past the strike)")
+                        break
 
     def on_tick(t, yb, ya):
         if t not in markets: return                  # only our markets
@@ -275,13 +317,13 @@ def main():
         with lock:
             st = state.get(t)
             if not st or not st.pos: return
-            p, st.pos = st.pos, None
+            ps = list(st.pos.values()); st.pos = {}
+        for p in ps:
             won = (result == "yes") == p.yes
-            net = record(t, st, p, 100 if won else 0, None, result, "settled")
-        r = run[cls(asset(t))]
-        say(f"SETTLED {'WIN ' if won else 'LOSS'} {p.n}x {'YES' if p.yes else 'NO'} bought {p.px}c  "
-            f"net {net:+.0f}c  {asset(t)} {t[-7:]}  {cls(asset(t))} run {r['net']:+.0f}c "
-            f"({r['closed']} positions, {r['won']} won)")
+            net = record(t, p, 100 if won else 0, None, result, "settled")
+            r = run[(p.strat, cls(asset(t)))]
+            say(f"SETTLED {'WIN ' if won else 'LOSS'} [{STRAT_NAMES[p.strat]}] {p.n}x {'YES' if p.yes else 'NO'} bought {p.px}c  "
+                f"net {net:+.0f}c  {asset(t)} {t[-7:]}  run {r['net']:+.0f}c ({r['closed']} positions, {r['won']} won)")
 
     global FEED, SPOT, BOOK
     spot = SPOT = make_spot()
@@ -381,14 +423,17 @@ def main():
                     kfh.flush(); ffh.flush()
             if time.time() - last_status >= STATUS_EVERY_SEC:
                 last_status = time.time()
-                parts = []
+                gparts = []
                 for c in ("crypto", "commodity"):
-                    r, ro = run[c], run_off[c]; gs, gn, gon = guard(c)
-                    g = "warming up" if gs is None else f"{'ON' if gon else 'off'} {gs:.0%} of {gn}"
-                    parts.append(f"{c}: {r['closed']} closed, {r['won']} won, net {r['net']:+.0f}c "
-                                 f"(guard-off trades {ro['closed']}: {ro['net']:+.0f}c) · guard {g}")
+                    gs, gn, gon = guard(c)
+                    gtxt = "warming up" if gs is None else ("ON" if gon else "off") + f" {gs:.0%} of {gn}"
+                    gparts.append(f"{c} {gtxt}")
                 fm = drive_free_mb(os.path.dirname(TRADES_CSV))
-                say("[status] " + " | ".join(parts) + ("" if fm is None else f" | Drive free {fm:,.0f} MB"))
+                say("[status] guard: " + ", ".join(gparts) + ("" if fm is None else f" | Drive free {fm:,.0f} MB"))
+                for key in STRATS:
+                    r, ro = run[key], run_off[key]
+                    print(f"           {STRAT_NAMES[key[0]]:13} {key[1]:9}: {r['closed']:3} closed, {r['won']:3} won, net {r['net']:+6.0f}c"
+                          f"   (guard off: {ro['closed']} closed, {ro['net']:+.0f}c)")
                 if fm is not None and fm < LOW_SPACE_MB:
                     say(f"!!! DRIVE NEARLY FULL ({fm:,.0f} MB free) — logs may stop saving. Free up space now. !!!")
             if book and time.time() - last_bookchk >= 60:          # order-book watchdog
@@ -406,10 +451,10 @@ def main():
                     book_stale, last_vs = 0, -1
             time.sleep(LOOP_SEC)
     except KeyboardInterrupt:
-        for c, r in run.items():
-            ro = run_off[c]
-            print(f"[stopped] {c}: net {r['net']:+.0f}c over {r['closed']} closed positions ({r['won']} won) · "
-                  f"guard-off trades only: {ro['net']:+.0f}c over {ro['closed']}")
+        for key in STRATS:
+            r, ro = run[key], run_off[key]
+            print(f"[stopped] {STRAT_NAMES[key[0]]} {key[1]}: net {r['net']:+.0f}c over {r['closed']} closed positions "
+                  f"({r['won']} won) · guard-off trades only: {ro['net']:+.0f}c over {ro['closed']}")
     finally:
         feed.stop(); spot.stop()
         if book: book.stop()

@@ -1,5 +1,5 @@
 # ============================================================
-# Commod15min V38 "early favs" — PAPER ONLY (no order is ever sent to Kalshi)
+# Commod15min V38 "early favs" + rebound + spot-confirmed cross — PAPER ONLY (no order is ever sent to Kalshi)
 #
 # STRATEGY: buy the side that is already a strong favourite early in the market, hold it to settlement.
 #   - CRYPTO (BTC, ETH, SOL, XRP, DOGE): a side whose ask is 88-95c in the first 3 minutes.
@@ -8,6 +8,18 @@
 #     Chosen for volume (about 45% of markets qualify); about break-even so far — this run tests it.
 #   - 10 contracts at the ask, one trade per market, no buy if the spread is wider than 5c.
 #   - No sells, no stops: every position is held to $1 or $0.
+#
+# REBOUND (crypto) — a second buy in the same early-fav market:
+#   after the early-fav buy, if that side's bid falls 5c+ below the buy price, buy 10 more at the ask
+#   once the bid is 2c above its lowest point (not in the last 30 s). Hold.
+#   V37 data: 89 of 118 early-fav markets dipped that far; 93.3% won at 83.5c, +8.5c per contract.
+#
+# SPOT-CONFIRMED 90c CROSS (crypto) — the "final cross" idea:
+#   when a side's ask crosses from below 90c to 90-95c while Coinbase spot is already 1.5+ "normal moves"
+#   past the strike on that side (normal move = the coin's 15-min volatility scaled to the time left), buy 10.
+#   Hold. V37 data: 173 markets, 96.5% won at 90.5c, +5.0c per contract. Needs ~5 min of spot after start.
+#
+# Each strategy has its own totals (status line every 15 min; trades file column "strategy").
 #
 # REVERSAL GUARD (information only — trades are still taken):
 #   share of the last hour's markets (same class) whose leader at 3 minutes in ended up losing.

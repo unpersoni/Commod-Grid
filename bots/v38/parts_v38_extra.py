@@ -1,9 +1,29 @@
 
 # ---------------- V38: crypto spot only (Pyth needs a paid key) ----------------
 class CryptoSpots:
-    def __init__(self): self.cb = SpotFeed()
-    def start(self): self.cb.start()
-    def stop(self): self.cb.stop()
+    """Coinbase spot for the 5 coins + a 1-second price sample for each, to measure recent volatility."""
+    def __init__(self):
+        self.cb = SpotFeed()
+        self.samples = {a: collections.deque(maxlen=1200) for a in SPOT_ASSET_MAP}
+        self.stop_flag = threading.Event()
+    def start(self):
+        self.cb.start(); threading.Thread(target=self._sample, daemon=True).start()
+    def stop(self): self.stop_flag.set(); self.cb.stop()
+    def _sample(self):
+        while not self.stop_flag.is_set():
+            t = time.time()
+            for a in SPOT_ASSET_MAP:
+                p = self.cb.price(a, max_age=10)
+                if p: self.samples[a].append((t, p))
+            self.stop_flag.wait(1.0)
+    def var_per_sec(self, a, window=900, min_n=300):
+        """Variance of log price changes per second over the last 15 minutes (None until 5 min of data)."""
+        cut = time.time() - window
+        h = [x for x in list(self.samples.get(a, ())) if x[0] >= cut]
+        if len(h) < min_n: return None
+        ss = sum(math.log(h[i][1] / h[i - 1][1]) ** 2 for i in range(1, len(h)))
+        el = h[-1][0] - h[0][0]
+        return ss / el if el > 0 and ss > 0 else None
     def price(self, a): return self.cb.price(a) if a in SPOT_ASSET_MAP else None
     def change_pct(self, a, secs): return self.cb.change_pct(a, secs) if a in SPOT_ASSET_MAP else None
 

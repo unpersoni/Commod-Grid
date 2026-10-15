@@ -27,7 +27,11 @@ Kept up to date as data comes in. Every number names its source.
   (Note: "minutes 0-3" in the crypto rule = first 3 minutes, sec 900-720.)
 - Reversal guard (share of the last hour's markets whose minute-3 leader lost): computed at start-up from Kalshi
   history if available, then live; every trade is still taken and labelled guard on/off.
-- Rebound entry: not traded live; replay from tick files.
+- Updated Oct 15 (user's request): rebound and spot-confirmed cross added as separate strategies, each with its own
+  totals. Rebound (crypto): after the early-fav buy, bid falls 5c below the buy price, buy when the bid is 2c above
+  its low (best total in the rebound test: 89 buys, 93.3%, +8.5c). Spot cross (crypto): ask crosses 90c (to 90-95c)
+  with spot >= 1.5 normal moves past the strike (173 buys, 96.5%, +5.0c). Spot volatility = 1-second Coinbase samples
+  over 15 min (needs 5 min after start). Older V38 trades file with other columns is set aside automatically.
 - Logging kept small: trades, settlements, hourly ticks always gzipped with top-of-book size added, trade flow summarised
   per market per 15 s (no full book, no raw prints); warn when Drive < 200 MB free. Target ~10 MB/day.
 - Drive cleanup Oct 15: V37 data folder (ticks, book, prints, ~470 MB) moved to Drive Trash. Ticks and book saved in
