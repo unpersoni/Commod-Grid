@@ -204,6 +204,21 @@ Biggest LOSS: Sun 3:15-8:30pm ET, -$253.6 (101 trades). Conditions matched to th
   inverse side doesn't make money in those hours. Cuts losses, doesn't make V37 profitable. Fine buckets are noisy.
 - Compare with V37's own last-60-min P&L switch (Oct 14-15 note): there flip beat pause on new data (+449).
 
+## Spot distance / direction cutoffs for V37 (user's idea, checked Oct 15)
+Source: V37 real trades in WIN/LOSS phases (1,417), spot vs strike logged by the bot at each buy (own coin, oriented:
++ = spot already on our side), own coin 60s move, BTC's own spot vs its strike and 60s move (both oriented to our side).
+- Scale: in minutes 0-3 spot is very close to the strike. Own coin distance median 0.03%, 90% within ~0.1%; BTC median
+  0.016%. Cutoffs of 0.5% / 0.65% remove almost nothing (86% of trades kept by both; the rest have no spot value).
+- WIN vs LOSS phases have nearly the same distances (own coin median 0.034% vs 0.030%; BTC 0.015% vs 0.018%).
+- "Within X% of the strike": never separates the phases (keeps the same share of WIN and LOSS trades) and is worse the
+  tighter it is (|d| <= 0.02%: 61.7% won, -$0.54/trade). Close to the strike = coin flip.
+- Opposite direction works a little: spot already on our side by >= 0.05%: 361 trades, 72.0% won, +$0.09/trade
+  (keeps 29% of WIN-phase vs 22% of LOSS-phase trades); >= 0.1%: 89 trades, 76.4%, +$0.45. But Fri-Mon still
+  negative (-0.27 / -0.07), only Tue-Wed positive (+0.58 / +1.18). Not consistent yet.
+- Direction: own coin moving our way changes little (-$0.26 vs -$0.39). BTC on our side AND moving our way is the
+  worst group (-$0.60/trade, keeps 47% of LOSS vs 39% of WIN trades): chasing BTC's move hurts. BTC against us: $0.00.
+- No spot cutoff made V37 profitable in both periods (except 41 trades: on our side >= 0.03% and not moving our way).
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
