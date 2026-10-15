@@ -232,6 +232,22 @@ Measure: the coin's spot over the 10 min before the buy, efficiency ratio = |net
 - Conclusion: when spot hovers near the strike, Kalshi prices swing more but the swings are priced; buying the swings
   doesn't pay, and range-bound conditions were if anything worse for both V37 and swing trading.
 
+## Commodities: do they trend more / are they more reliable? (checked Oct 15)
+The Oct 7 remark ("commodities trend more ... probably need their own rules") was a hypothesis, not a finding.
+Source: V37 ticks + settlements, 932 commodity and 1,395 crypto markets (Fri Oct 9 - Wed Oct 14).
+- Inside a market, commodities are choppier, not calmer: price crosses 50c 11.7 times vs 9.9 for crypto; same swing
+  (63c vs 65c); spread twice as wide (1.96c vs 1.04c). Spot moves less in % (avg 15-min move 0.114% vs 0.150%), but
+  the Kalshi price scales to each asset's volatility, so in cents the markets swing just as much.
+- Leader reliability (side leading at minute M, won% minus its mid price): commodity +0.9 / +2.9 / +0.9 / +2.2 at
+  minutes 3 / 5 / 8 / 11 (crypto +2.7 / +1.2 / +0.1 / -0.9). Buying at the ask (+1c over mid) plus the fee (~1-2c)
+  takes all of it: no profit.
+- Trend across markets (same direction as the previous 15-min market, 50% = none): commodities 49.0% (969 pairs),
+  crypto 49.2%. Copper 55.1%, WTI 53.6%, gold 46.8%, silver 44.9%, platinum 45.6% (n 156-181, none significant).
+- The crypto winner (88-95c in minutes 0-3) on commodities: 47 buys, 91.5% won, +2.2c; Fri-Mon +10.7 (26) but
+  Tue-Wed -8.4 (21). Not confirmed.
+- Grid (earlier): 22 commodity settings passed Fri-Mon, 36% positive on new data vs 23% for all. Commodities still
+  have no edge in our data.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
