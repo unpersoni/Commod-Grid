@@ -294,6 +294,22 @@ Saved: data/grid/v37_biggrid_sums.csv.gz (summed buys / wins / net per exit for 
 - The narrower 88-95c min 0-3 setting (+5.6c, 118 buys) is still the best single result, but widened to 85-94c min 0-4
   it drops to +0.7c (450 buys): part of its +5.6c is likely luck of the exact cut.
 
+## The final cross of 90c (user's idea, checked Oct 15)
+Source: all V37 ticks (Oct 9-14). Cross = the side's ask rises from < 90c to 90-95c (spread <= 5c, > 5 s left);
+"final" = the side's mid never goes back below 90c before the close. 13 conditions + time left + cross number
+attached; singles and pairs tested (Fri-Mon halves, then Tue-Wed).
+- 5,354 crypto / 2,768 commodity crosses. Only 13% are final in both classes, yet 90.1% / 90.2% of crossing sides win
+  (bought at 90.4c: -1.2c / -1.3c per contract). Final crosses are mostly at the very end (crypto minute 14: 43%).
+- No condition makes a cross "definitely final": the highest final rates were ~40% (crypto: spot close to the strike
+  & fast market / & mixed cycle). Not needed anyway -- what pays is the side winning, final or not.
+- What does pay (crypto, first qualifying cross per market): spot already past the strike by >= 1.5 "normal moves"
+  (z = distance / (15-min volatility x sqrt(time left))): 173 buys, 96.5% won at 90.5c, +5.0c/contract;
+  Fri-Mon A +5.4 (63), B +5.8 (76), Tue-Wed +2.6 (34); every day positive (Sat +4.0, Sun +4.2, Wed +2.3 lowest);
+  every coin (BTC +2.4 ... XRP +8.5); minutes 0-3 +8.8 (40), 4-10 +4.0 (85), 11-14 +3.9 (48).
+  >= 1.0: 769 buys, -0.2c (Tue-Wed -3.4); >= 2.0: 40 buys, +3.2c. About 2.3 buys/hour.
+- Same idea as the spot-model gap: Coinbase says the side is ~97% likely, Kalshi charges 90c.
+- Commodities: no spot price, so this can't be used there; 6 of 264 commodity settings passed Fri-Mon.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -319,7 +335,9 @@ Saved: data/grid/v37_biggrid_sums.csv.gz (summed buys / wins / net per exit for 
     full week with thresholds fixed in advance.
 12. Early near-certain favourites: crypto side at 88-95c in minutes 0-3, hold (grid Oct 15). Needs more data:
     118 buys so far; check weekend vs weekday (Sat -9.7) and whether adding 60s rising / spot-with helps.
-13. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+13. Spot-confirmed 90c crosses: crypto side crosses 90c while spot is >= 1.5 normal moves past the strike
+    (173 buys, 96.5%, +5.0c). Re-test on V38 data (ticks include spot); candidate for V39.
+14. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
