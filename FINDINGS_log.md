@@ -150,6 +150,27 @@ when the trades logged but the tick files never reached the full Drive).
 - V37 real total: 1,425 trades, -$428.78 (Fri-Mon -$414.34, Tue-Thu -$14.44). By ET day: Fri +7.58, Sat -84.67,
   Sun -161.53, Mon -175.72, Tue +0.93, Wed -15.37.
 
+## Grid with the 12 conditions (run Oct 15, all V37 data Fri Oct 9 - Wed Oct 14)
+Source: V37 ticks (75 h) + book files (70 h, 90% of ticks matched) + settlements; 1,430 crypto and 957 commodity
+markets. Entry = first moment a side's ask is in the band and window (spread <= 5c, >= 30s left), one per
+market/side/setting. Bands 30-39 ... 88-95c x windows min 0-3/4-7/8-11/12-14 x 13 conditions (minute is the
+window; spread; 30s and 60s direction; speed = 60s range; open lean; spot vs strike; coin and BTC 60s spot move;
+cycle = other markets' lean; streak = previous market's winner; book imbalance at the top level; time of day ET),
+each in 3 levels. Exits: hold, or sell at 90c. 1,842 settings. Rule: positive in both halves of Fri-Mon,
+then judged on Tue 8pm - Wed 9pm (never used to choose).
+- Crypto, hold: 55 of 946 settings passed Fri-Mon; 33% of them were positive on the new data vs 16% of all
+  settings (avg -1.7c vs -2.9c). Selection helps a little, but most "winning circumstances" failed on new data.
+  Sell-at-90: 33 passed, 39% positive (vs 11%). Commodities: 22 passed, 36% positive (vs 23%); sell-90: 3 passed.
+- Only consistent setting: crypto side at 88-95c in minutes 0-3, hold. 118 buys in 49 cycles, avg 88.3c, won
+  94.9%, +5.6c/trade (+$65.80 at 10 contracts over the 75 h). Fri-Mon halves +3.2 / +5.0, new +8.4 (41, 1 loss).
+  By day: Fri +10.9, Sat -9.7, Sun +10.6, Mon +1.0, Tue +11.0, Wed +8.1. Every coin positive. Per cycle: 94% of
+  cycles positive, +5.6c +/- 3.0 (about 1.9 SE). Adding a condition (rising, coin/BTC spot with, book with) gave
+  100% won on new data but on ~36 buys. A loss costs ~88c, so one extra loss per ~16 trades erases it.
+- Looked good but is not: crypto 30-39c in minutes 8-11 when other coins lean the other way. Per trade
+  +6.1 / +2.5 / +2.0, but per cycle it averages 0.0c: it comes from a few cycles where several underdogs won
+  together. Cluster effect, not an edge.
+- No setting built on the 12 conditions beat the market on its own outside the 88-95c / minutes 0-3 pocket.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -173,7 +194,9 @@ when the trades logged but the tick files never reached the full Drive).
     alt-coin Kalshi prices; cross-coin agreement within a cycle. Fit on the first part, judge on the rest.
 11. Session switch: flip to the inverse (or pause) when V37's last-60-min P&L < -200c/contract; re-test on the
     full week with thresholds fixed in advance.
-12. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
+12. Early near-certain favourites: crypto side at 88-95c in minutes 0-3, hold (grid Oct 15). Needs more data:
+    118 buys so far; check weekend vs weekday (Sat -9.7) and whether adding 60s rising / spot-with helps.
+13. Carried over: time exits, Kalshi and spot momentum filters, per-coin results (SOL negative before),
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
