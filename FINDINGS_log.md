@@ -219,6 +219,19 @@ Source: V37 real trades in WIN/LOSS phases (1,417), spot vs strike logged by the
   worst group (-$0.60/trade, keeps 47% of LOSS vs 39% of WIN trades): chasing BTC's move hurts. BTC against us: $0.00.
 - No spot cutoff made V37 profitable in both periods (except 41 trades: on our side >= 0.03% and not moving our way).
 
+## Range-bound vs trending spot (user's idea, checked Oct 15)
+Measure: the coin's spot over the 10 min before the buy, efficiency ratio = |net move| / path travelled in 30s steps
+(near 0 = up-and-down without getting anywhere, near 1 = steady one-way move); split into equal thirds
+(bounds 0.102 / 0.243). Source: V37 ticks (Coinbase spot) + V37 real trades + all crypto markets.
+- V37 real trades: range-bound -$0.62/trade (263), in between -$0.66 (278), trending -$0.30 (318). Range-bound is
+  not better; trending inconsistent between periods (Fri-Mon -0.03, Tue-Wed -1.00). Range-bound kept 48% WIN-phase trades.
+- Buy cheap, sell higher (side at 35-45c in minutes 0-10, sell when the bid is +T, else hold; one per market/side,
+  1,746 buys): +10c target reached 77% / 77% / 78% (range-bound / in between / trending) -- about the fair odds
+  (40c -> 50c should happen ~80% of the time). Net per trade, +15c target: -5.6 / -5.5 / -3.9 c; +10c: -5.6 / -5.7 / -4.8;
+  +20c: -5.3 / -4.5 / -3.8; hold: -4.0 / -2.4 / -2.0. Range-bound and spot near the strike: -6.3c in both periods (worst).
+- Conclusion: when spot hovers near the strike, Kalshi prices swing more but the swings are priced; buying the swings
+  doesn't pay, and range-bound conditions were if anything worse for both V37 and swing trading.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
