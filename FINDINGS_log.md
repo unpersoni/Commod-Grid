@@ -32,6 +32,8 @@ Kept up to date as data comes in. Every number names its source.
   its low (best total in the rebound test: 89 buys, 93.3%, +8.5c). Spot cross (crypto): ask crosses 90c (to 90-95c)
   with spot >= 1.5 normal moves past the strike (173 buys, 96.5%, +5.0c). Spot volatility = 1-second Coinbase samples
   over 15 min (needs 5 min after start). Older V38 trades file with other columns is set aside automatically.
+- V38 live start (Oct 15): guard start-up lookup confirmed working against Kalshi -- 44 settled markets in the last
+  hour (11 x 4), all with a minute-3 leader; crypto 6/20 reversed (30%, guard off), commodity 10/24 (42%, guard on).
 - Logging kept small: trades, settlements, hourly ticks always gzipped with top-of-book size added, trade flow summarised
   per market per 15 s (no full book, no raw prints); warn when Drive < 200 MB free. Target ~10 MB/day.
 - Drive cleanup Oct 15: V37 data folder (ticks, book, prints, ~470 MB) moved to Drive Trash. Ticks and book saved in
