@@ -21,8 +21,9 @@ RULES = {
 SELL_AT_C     = None   # no sell target: every position is held to settlement
 MAX_TRADES_PER_MARKET = 1   # per strategy
 
-# "rebound" (crypto): a second buy after an early-fav buy, if that side dips and turns back up
+# "rebound": a second buy after an early-fav buy, if that side dips and turns back up
 REBOUND_ON           = True
+REBOUND_CLASSES      = {"crypto", "commodity"}
 REBOUND_DIP_C        = 5    # the side's bid must fall at least 5c below the early-fav buy price ...
 REBOUND_TURN_C       = 2    # ... then buy when the bid is 2c above its lowest point since the buy
 REBOUND_MIN_LEFT_SEC = 30   # not in the last 30 seconds

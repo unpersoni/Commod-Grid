@@ -325,6 +325,13 @@ Stops sell at the actual bid when it first reaches the level (gaps included) + f
   None better than holding in both periods. A dumped winner costs ~80c, a saved loser recovers <= the stop price.
 - Conclusion: no stop for commodity early favs; fix the entry (or drop commodities) if they keep losing in V38.
 
+## Rebound on commodity early favs (checked Oct 16, added to V38 at the user's request)
+Source: V37 ticks; after the V38 commodity early-fav buy (85-95c, first 8 min; 433 markets, -0.41c, Fri-Mon +1.83 / Tue-Wed -2.94).
+- dip 5 / turn 2: 326 buys, 82.2% won at 81.4c, -0.70c (Fri-Mon +1.80, Tue-Wed -3.75); 5/8: -0.25c; 8/8: -0.07c;
+  20/3: 162 buys, +0.65c (+5.93 / -5.04). No setting positive in both periods -- every one up Fri-Mon, down Tue-Wed,
+  like the first buy. Unlike crypto (+8.5c), the commodity rebound adds no edge; it is a second break-even buy.
+- Added to V38 anyway for data collection, same settings as crypto (5c dip, 2c turn), tracked as its own strategy.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).

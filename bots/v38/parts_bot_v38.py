@@ -81,7 +81,7 @@ def main():
               f"{(900 - rl['until_sec']) / 60:g} minutes (at the ask) · HOLD to settlement · "
               f"{MAX_TRADES_PER_MARKET} trade per market · no buy if spread > {MAX_SPREAD_C}c · Kalshi taker fees")
     if REBOUND_ON:
-        print(f"rule (rebound, crypto): after an early-fav buy, when that side's bid falls {REBOUND_DIP_C}c below the buy price, "
+        print(f"rule (rebound, {' + '.join(sorted(REBOUND_CLASSES))}): after an early-fav buy, when that side's bid falls {REBOUND_DIP_C}c below the buy price, "
               f"BUY {CONTRACTS} more at the ask once the bid is {REBOUND_TURN_C}c above its low (>= {REBOUND_MIN_LEFT_SEC}s left) · HOLD")
     if CROSS_ON:
         print(f"rule (spot-confirmed cross, crypto): when a side's ask crosses {CROSS_LEVEL_C}c (to {CROSS_LEVEL_C}-{CROSS_MAX_C}c) while "
@@ -98,7 +98,7 @@ def main():
     lock = threading.RLock()
     markets, rest_px, state = {}, {}, {}
     settle_due, settled = {}, set()
-    STRATS = [("fav", c) for c in ("crypto", "commodity")] + [("rebound", "crypto"), ("cross", "crypto")]
+    STRATS = [("fav", c) for c in ("crypto", "commodity")] + [("rebound", c) for c in ("crypto", "commodity")] + [("cross", "crypto")]
     run = {k: {"net": 0, "closed": 0, "won": 0} for k in STRATS}
     run_off = {k: {"net": 0, "closed": 0, "won": 0} for k in STRATS}   # guard OFF at buy
     lead3 = {}                       # ticker -> True (YES led) / False (NO led) / None, at 3 min in
@@ -257,7 +257,7 @@ def main():
                 if cands and not (len(cands) == 2 and cands[0][0] == cands[1][0]):
                     ask, yes = min(cands)
                     buy(t, st, "fav", yes, ask, yb, ya, s2c)
-                    if c == "crypto" and REBOUND_ON:
+                    if REBOUND_ON and c in REBOUND_CLASSES:
                         st.rb = {"yes": yes, "sig": ask, "low": 999, "armed": False}
                     return
             # 2) rebound: after an early-fav buy, the side dips REBOUND_DIP_C below the buy price, then turns up

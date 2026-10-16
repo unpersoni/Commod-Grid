@@ -69,6 +69,8 @@ def script():
     tick(M["D"], 90, 91)      # ask crosses 90 -> 91 with spot ~2 normal moves above the strike -> spot cross: BUY YES @91
     tick(M["E"], 10, 17)      # DOGE NO ask 90 but spread 7c -> no buy
     tick(M["G"], 86, 87)      # GOLD YES ask 87, minute 0 -> BUY YES @87 (commodity 85-95)
+    tick(M["G"], 81, 83)      # GOLD bid 81 = 6c below the buy -> rebound armed
+    tick(M["G"], 83, 84)      # 2c off the low -> commodity rebound: BUY YES @84
     tick(M["S"], 90, 91)      # SILVER minute 7.5 (450 s left) -> still inside the 8-minute commodity window -> BUY YES @91
     tick(M["W"], 90, 91)      # WTI 400 s left -> past the commodity window, no buy
     feed.on_trade(M["A"], 90, 5, "yes"); feed.on_trade(M["A"], 89, 3, "no"); feed.on_trade(M["G"], 87, 2, "yes")
@@ -89,8 +91,10 @@ rows = list(csv.DictReader(open(f"{out}/commod15min_v38_trades.csv")))
 by = sorted((r["asset"], r["side"], r["buy_px"], r["reason"], r["net_c"], r["guard_on"], r["guard_markets"]) for r in rows)
 for b in by: print(b)
 strat = sorted((r["asset"], r["strategy"]) for r in rows); print(strat)
-assert strat == [("BTC", "fav"), ("BTC", "rebound"), ("ETH", "fav"), ("GOLD", "fav"), ("SILVER", "fav"), ("XRP", "cross")], strat
-assert len(rows) == 6, by
+assert strat == [("BTC", "fav"), ("BTC", "rebound"), ("ETH", "fav"), ("GOLD", "fav"), ("GOLD", "rebound"), ("SILVER", "fav"), ("XRP", "cross")], strat
+assert len(rows) == 7, by
+assert ("GOLD", "YES", "84", "settled", str(160 - fee(10, 84)), "", "0") in by, by
+assert "rebound       commodity" in txt
 assert ("BTC", "YES", "90", "settled", str(100 - fee(10, 90)), "1", "15") in by, by
 assert ("BTC", "YES", "87", "settled", str(130 - fee(10, 87)), "1", "15") in by, by
 assert ("XRP", "YES", "91", "settled", str(90 - fee(10, 91)), "1", "15") in by, by

@@ -9,10 +9,11 @@
 #   - 10 contracts at the ask, one trade per market, no buy if the spread is wider than 5c.
 #   - No sells, no stops: every position is held to $1 or $0.
 #
-# REBOUND (crypto) — a second buy in the same early-fav market:
+# REBOUND (crypto and commodities) — a second buy in the same early-fav market:
 #   after the early-fav buy, if that side's bid falls 5c+ below the buy price, buy 10 more at the ask
 #   once the bid is 2c above its lowest point (not in the last 30 s). Hold.
-#   V37 data: 89 of 118 early-fav markets dipped that far; 93.3% won at 83.5c, +8.5c per contract.
+#   V37 data: crypto 89 of 118 early-fav markets dipped that far; 93.3% won at 83.5c, +8.5c per contract.
+#   Commodities: 326 buys, 82.2% won at 81.4c, -0.7c (about break-even; +1.8 Fri-Mon, -3.8 Tue-Wed) — data collection.
 #
 # SPOT-CONFIRMED 90c CROSS (crypto) — the "final cross" idea:
 #   when a side's ask crosses from below 90c to 90-95c while Coinbase spot is already 1.5+ "normal moves"
