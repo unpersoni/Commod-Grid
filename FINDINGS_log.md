@@ -316,6 +316,15 @@ attached; singles and pairs tested (Fri-Mon halves, then Tue-Wed).
 - Same idea as the spot-model gap: Coinbase says the side is ~97% likely, Kalshi charges 90c.
 - Commodities: no spot price, so this can't be used there; 6 of 264 commodity settings passed Fri-Mon.
 
+## Stop-loss for commodity early favs (user's question, checked Oct 16)
+Source: V37 ticks; V38 commodity rule (85-95c in the first 8 minutes, first per market): 433 trades, 86.4% won, hold -0.41c.
+Stops sell at the actual bid when it first reaches the level (gaps included) + fee.
+- Winners dip deep: lowest bid of winners -- median 77c, 25th pct 63c, 10th pct 40c, 5th pct 26c, 1st pct 10c.
+- Every stop was worse than holding overall: 80c any time -3.2c (249 winners dumped / 59 losers saved), 50c -1.1c (55/59),
+  20c -0.3c (12/55). Last-3-min-only: 50c +0.07 (32/59, but Fri-Mon -0.2), 70c -0.03; last-2-min-only all -0.5 to -0.7.
+  None better than holding in both periods. A dumped winner costs ~80c, a saved loser recovers <= the stop price.
+- Conclusion: no stop for commodity early favs; fix the entry (or drop commodities) if they keep losing in V38.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
