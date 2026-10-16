@@ -332,6 +332,19 @@ Source: V37 ticks; after the V38 commodity early-fav buy (85-95c, first 8 min; 4
   like the first buy. Unlike crypto (+8.5c), the commodity rebound adds no edge; it is a second break-even buy.
 - Added to V38 anyway for data collection, same settings as crypto (5c dip, 2c turn), tracked as its own strategy.
 
+## Dip-then-rebound as a "will win" signal (user's question, checked Oct 16)
+Source: V37 ticks, early-fav trades (crypto 118: 112 won / 6 lost; commodity 433: 374 / 59). Signal = side's bid dips D below
+the buy price, then rises R off its low (cents, or a share of the dip recovered); first such moment per trade, >= 30 s left;
+compare the win rate then with the ask then.
+- Crypto: every combination won more than its price, in both periods. E.g. dip 10 & +10c: 56 cases, 89.3% won at 77.7c,
+  +10.1c (Fri-Mon +6.5 / Tue-Wed +15.2); dip 15 & 50% of the dip back: 38 cases, 3 lost, 92.1% at 75.1c, +15.1c
+  (+13.8 / +16.7); dip 20 & 75% back: 29 cases, 1 lost, 96.6% at 80.6c, +14.4c. Bigger rebounds filter out losers
+  (6 losers at +5c -> 2 at +30c; 1 at 75% of the dip). BUT all rows are the same ~50 dipping winners and the same 6 losers:
+  tiny sample. Total profit is lower than V38's 5c/2c rebound (89 buys, +8.5c, +$75 at 10) because fewer trades qualify.
+- Commodities: win rate = price at every combination (edge -2.6 to +5.7, mostly 0 to +2); every row up Fri-Mon,
+  down Tue-Wed. Bigger rebounds also filter losers (57 -> 27) but the price is higher by the same amount. No signal.
+- Candidate for crypto once V38 has more data: require a bigger rebound (e.g. 50% of the dip back) for the second buy.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
