@@ -345,6 +345,20 @@ compare the win rate then with the ask then.
   down Tue-Wed. Bigger rebounds also filter losers (57 -> 27) but the price is higher by the same amount. No signal.
 - Candidate for crypto once V38 has more data: require a bigger rebound (e.g. 50% of the dip back) for the second buy.
 
+## Commodity early favs: clustered losses (user's concern, checked Oct 16)
+V38 first run (Oct 15 17:20 - Oct 16 04:37 UTC, data/v38/): commodity early favs 131 trades, 124 won, +$106.18 (crypto fav 21/20
++$13.16, spot cross 21/20 +$8.51, crypto rebound 9/8 +$4.28). 7 commodity losses (~-$8.60 each vs ~+$1 per win), 4 of them WTI;
+one cycle with 2 losses (palladium + platinum, -$17.18).
+V37 data, same rule (433 trades, 59 lost, -$12.41):
+- Losses bunch a little: 12 cycles with 2+ losses (8 with 2, 4 with 3) vs 8.8 expected if trades were independent.
+- No consistently bad commodity: per-asset totals flip between periods (platinum Fri-Mon +16.6 / Tue-Wed -33.7, gold -3.2 / +19.2);
+  WTI was +$2.51 in V37 (its V38 losses may be chance); silver -40.7, platinum -17.1 worst in V37.
+- Exposure caps make results smoother but cut the total: all -12.41 (worst cycle -24.65, worst 4-cycle stretch -33.21);
+  max 1 metal per cycle -35.18 (-17.38 / -22.40); max 2 commodities per cycle -54.41; max 1 commodity per cycle -25.87
+  (-8.78 / -15.12); skip WTI -14.92. Stops and rebounds don't help (sections above).
+- Break-even win rate for commodity early favs is ~88% (win ~+$1.2, loss ~-$8.7): V37 period 86.4%, V38 so far 94.7%.
+- Caps can be evaluated on V38's trades file afterwards without changing the bot.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
