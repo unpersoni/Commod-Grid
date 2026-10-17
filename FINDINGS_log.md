@@ -359,6 +359,26 @@ V37 data, same rule (433 trades, 59 lost, -$12.41):
 - Break-even win rate for commodity early favs is ~88% (win ~+$1.2, loss ~-$8.7): V37 period 86.4%, V38 so far 94.7%.
 - Caps can be evaluated on V38's trades file afterwards without changing the bot.
 
+## Limit buys on dips, market-maker style (user's question, checked Oct 17)
+Test (analysis/limit_dip.py, V37 ticks Oct 9-14): a side's bid first reaches a high H (55-95c, >30s left);
+a resting buy D cents lower fills when the ask falls to H-D. "Back" = the bid later returns to H.
+| Class | Dip | Fills | Back to high | Won | Avg fill | Won - fill (no fee) | Buy-low/sell-at-high, else hold |
+|---|---|---|---|---|---|---|---|
+| crypto | 5c | 11,486 | 84.9% | 61.9% | 65.4c | -3.4c | -5.4c |
+| crypto | 10c | 10,006 | 77.3% | 56.4% | 59.6c | -3.3c | -5.5c |
+| crypto | 15c | 8,937 | 70.0% | 51.2% | 54.2c | -3.0c | -5.5c |
+| crypto | 20c | 8,068 | 62.5% | 46.1% | 48.9c | -2.8c | -5.4c |
+| commodity | 5c | 6,520 | 83.2% | 61.3% | 63.8c | -2.5c | -5.7c |
+| commodity | 10c | 5,542 | 74.9% | 55.1% | | -3.0c | -6.0c |
+| commodity | 15c | 4,814 | 66.5% | 49.2% | | -3.5c | -6.2c |
+| commodity | 20c | 4,252 | 58.5% | 43.7% | | -3.6c | -6.1c |
+- Most dips do come back to the high (that is why resting dip orders fill and look good), but the ones
+  that don't come back almost always lose (crypto 0.0-0.1% won, commodities ~3%), and they cost ~45-64c each.
+- Every H level is negative for crypto (-1.2 to -5.9c); commodity H95 dip 20c +0.4c (69 fills) is the only
+  positive row; high-H commodity rows are positive Tue-Wed but negative Fri-Mon. Both halves negative overall.
+- Adverse selection: a resting buy gets filled mostly when the side is weakening. Market makers earn the
+  spread by quoting both sides, not from the dip buy itself. Nothing to add to V38 from this.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
