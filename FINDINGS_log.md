@@ -417,7 +417,8 @@ V37 ticks for a worst-case check (Oct 9-14).
 Conclusion: the maker edge exists (~+0.9c per contract for all makers), but most of it goes to fast makers at the
 front of the queue; a slow back-of-queue bot loses in crypto and breaks even overall. The one candidate is resting
 bids on commodity favourites (85-98c): +4c per contract on V38, about break-even in the V37 worst case.
-Next: a live paper test that tracks queue position from the real trade feed (exact prices), commodities only.
+Live paper test: MM15Min V1 (bots/mm15min_v1/, from Oct 17) runs `fav` (85-98c) and `mm` (both sides 3-97c)
+on crypto AND commodities (user: live crypto may differ from the backtest), totals kept separately per class.
 
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
