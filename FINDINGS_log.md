@@ -417,6 +417,17 @@ V37 ticks for a worst-case check (Oct 9-14).
 Conclusion: the maker edge exists (~+0.9c per contract for all makers), but most of it goes to fast makers at the
 front of the queue; a slow back-of-queue bot loses in crypto and breaks even overall. The one candidate is resting
 bids on commodity favourites (85-98c): +4c per contract on V38, about break-even in the V37 worst case.
+Round trips (user's question, Oct 17; analysis/mm_roundtrip.py, V38): rest a bid (queue model), once filled rest a
+SELL K cents higher (also waiting its turn), unsold by 30 s before the close = held to settlement; one trip at a time,
+up to 5 per side. Most trips sell (90-98%), but the few that don't are big losses, so:
+   | Bids at | Sell +1c | +2c | +3c | +5c | +10c | Hold |
+   |---|---|---|---|---|---|---|
+   | crypto 3-97c | -0.87 | -0.97 | -1.03 | -0.93 | -0.93 | -0.50 |
+   | commodity 3-97c | -1.78 | -1.97 | -1.95 | -1.64 | -0.87 | -0.23 |
+   | crypto 85-98c | -0.04 | -0.05 | +0.16 | +0.46 | +0.57 | +0.80 |
+   | commodity 85-98c | +0.15 | +0.75 | +1.06 | +1.36 | +1.67 | +1.92 |
+   (c per contract.) Selling early never beat holding; quick small sells lose most in the middle prices.
+   (A first run that dropped positions still open where a market's data ended showed large false profits; fixed.)
 Live paper test: MM15Min V1 (bots/mm15min_v1/, from Oct 17) runs `fav` (85-98c) and `mm` (both sides 3-97c)
 on crypto AND commodities (user: live crypto may differ from the backtest), totals kept separately per class.
 
