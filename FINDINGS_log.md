@@ -379,6 +379,46 @@ a resting buy D cents lower fills when the ask falls to H-D. "Back" = the bid la
 - Adverse selection: a resting buy gets filled mostly when the side is weakening. Market makers earn the
   spread by quoting both sides, not from the dip buy itself. Nothing to add to V38 from this.
 
+## Market making: is there a maker edge, and can a slow bot get it? (user's shift in goal, checked Oct 17)
+Goal: small edge per contract from resting limit orders (no taker fee), high volume.
+Research (web): makers quote both sides and earn the spread, limit one-sided inventory, and pull quotes when
+informed flow arrives (adverse selection). Kalshi charges no fee on resting orders except series on its
+"Maker Fees" list (0.0175 x p x (1-p), a quarter of the taker rate; could not confirm whether the 15-minute
+series are listed). Kalshi's liquidity incentive program's published end date (Sep 1 2026) has passed.
+Burgi, Deng & Whelan ("Makers and Takers", Kalshi data): makers beat takers; contracts under 10c lose heavily.
+Data: V38 ticks + 15 s trade flow (taker side and contracts), Oct 15 17:00 - Oct 16 20:00 UTC (735 markets);
+V37 ticks for a worst-case check (Oct 9-14).
+
+1. All makers together (every trade's resting side, analysis/mm_maker_edge.py, V38):
+   crypto +0.94c per contract (90% range +0.48..+1.43, 186M contracts), commodities +0.78c (+0.23..+1.32);
+   positive in both halves. Biggest and steadiest: makers buying the favourite at 91-99c
+   (crypto +2.50c, range +0.82..+3.77; commodities +3.80c, +3.29..+4.25), i.e. selling 1-9c longshots to takers.
+   Makers buying at 1-10c lose (crypto -0.7c, commodities -2.7c).
+2. A small bot at the back of the queue (analysis/mm_queue_sim.py): 10-contract bid at the best price waits
+   behind the real queue (yes/no_bid_qty), fills from real taker volume or when the price trades through it, holds
+   to settlement, up to 5 orders per side per market. Two queue models (trades only / proportional) agree:
+   | Test | Crypto c/contract | Commodity c/contract |
+   |---|---|---|
+   | All prices, both sides | -0.47 to -0.69 | -0.04 to -0.20 |
+   | Middle 36-64c | -2.9 to -3.2 (range -4.4..-1.3) | +0.4 to +0.6 |
+   | Favourite 91-98c | -0.3 to -0.5 | +2.3 (range +0.6..+3.9) |
+   | Favourite 85-98c | +1.3 (range -1.1..+4.0) | +4.2 to +4.4 (range +2.0..+6.3) |
+   75-87% of fills are trade-throughs (the price fell through the bid), the adverse kind.
+   Commodity favourites 85-98c: positive in both halves (+6.3 night, +1.9 day), all six commodities
+   (WTI +0.8 and palladium +1.7 weakest, platinum +9.4); about 49 contracts and ~$2 per market at 10-lot, worst market -$48.
+   Crypto favourites: positive only with 7-15 min left (+4.5, +13.5), negative with 1-7 min left.
+3. Worst case on V37 (only trade-through fills, analysis/mm_through_v37.py, 6 days): commodity favourites 85-98c
+   +0.4c (range -1.3..+1.9; day by day -5.4/+12.6/-2.4/+0.6/-1.7/+3.3), 91-98c +0.7c; crypto favourites -2.0c;
+   any price -0.9c (commodities) and -1.5c (crypto). V37 was a weaker period for commodity favourites
+   (taker early favs won 86.4% vs 94.7% in V38).
+4. Pulling crypto bids when Coinbase moved against them in the last 3-10 s (reacting 1 s later) changes nothing
+   (analysis/mm_spot_guard.py). Our Coinbase fair value is less accurate than Kalshi's own price (when they
+   disagree by 15c+, Kalshi's price is closer to the result), so it cannot serve as an "informed maker" signal.
+Conclusion: the maker edge exists (~+0.9c per contract for all makers), but most of it goes to fast makers at the
+front of the queue; a slow back-of-queue bot loses in crypto and breaks even overall. The one candidate is resting
+bids on commodity favourites (85-98c): +4c per contract on V38, about break-even in the V37 worst case.
+Next: a live paper test that tracks queue position from the real trade feed (exact prices), commodities only.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).

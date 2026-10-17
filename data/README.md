@@ -38,3 +38,12 @@ Row counts were checked against the Drive originals. V37's book_ and prints_ fil
 Columns: ts_iso, ticker, asset, sec_to_close, yes_bids, no_bids ("price:qty;price:qty;..." best level first).
 Written about every 2 s for all 11 markets. The bot stopped writing book data after Oct 14 19:13 UTC.
 V37's trade prints were not saved (about 350 MB, never analysed); they were deleted from Drive on Oct 15.
+
+## v38_ticks/ and v38_flow/ — V38 files copied from Drive on Oct 17 (UTC hours, gzipped)
+- ticks_: ts_iso, ticker, asset, yes_bid, yes_ask, sec_to_close, spot_px, yes_bid_qty, no_bid_qty (contracts
+  resting at the best YES / NO bid; values below 1 are leftover rounding dust, treat as unknown). About 1 row per second per market.
+- flow_: every 15 s per market: bucket start, seconds to close at the bucket end, number of trades and contracts
+  where the taker bought YES (n/ct_yes_taker) or NO (n/ct_no_taker), average and last YES price.
+- Hours: Oct 15 17:00-23:00 and Oct 16 00:00-04:00, 14:00-20:00 UTC. Not copied: flow for Oct 15 17 and 21,
+  and the smaller crypto-only evening/morning hours (Oct 16 13, 21-23; Oct 17 00-01, 14-16), which are still on Drive.
+- v38/commod15min_v38_settlements.csv updated to Oct 17 01:15 UTC.
