@@ -458,6 +458,22 @@ a new hit counts only after the bid fell 3c+ below T. (a) final number of hits v
   V37 +1.04, V38 +3.60; 5 of 8 days) vs +0.79c on the 1st hit. 5th+ hit: about 0 (commodity 50-77c 5th+ hits: -3 to -5c).
 - Weaker than the hold-60s rule (commodity 86c held 60 s +2.74, range +1.33..+4.09).
 
+## First side to lead over 50c, hold; at 20c sell and reverse (user's plan, checked Oct 18)
+Test (analysis/first_lead_reversal.py, 3,080 markets Oct 9-16): buy the first side whose bid reaches 51c (taker at the ask,
+or a resting bid at its bid); if its bid falls to 20c, sell at the bid and buy the other side at its ask; else hold.
+On Kalshi the sell + reversal is one order (buy 2x the other side: positions net). c per contract after taker fees:
+   | | hold all | sell at 20c only | sell at 20c + reversal |
+   |---|---|---|---|
+   | crypto, taker entry (59.2c, lead won 60.0%) | -0.91 | -4.07 | -7.24 |
+   | crypto, resting bid | -0.52 | -3.89 | -7.25 |
+   | commodity, taker entry (58.2c, lead won 55.9%) | -4.08 | -3.74 | -3.39 |
+   | commodity, resting bid | -1.92 | -1.56 | -1.20 |
+- The first leader is usually already 55-60c (often at the open) and wins about as often as its price says.
+- About half of markets (49-55%) see the first leader's bid fall to 20c; the reversal side, bought at ~80c, then
+  wins 76% (crypto) / 83% (commodity): fairly priced, so the reversal adds nothing (crypto) or ~+0.4c (commodity).
+- Resting bid: 7% of markets never fill it, and in those the leader won 99% (limit orders miss the runaway winners).
+- Every version negative in V37; V38 mixed (crypto hold +5-6, commodity plan +0.7..+2.8).
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
