@@ -431,6 +431,22 @@ up to 5 per side. Most trips sell (90-98%), but the few that don't are big losse
 Live paper test: MM15Min V1 (bots/mm15min_v1/, from Oct 17) runs `fav` (85-98c) and `mm` (both sides 3-97c)
 on crypto AND commodities (user: live crypto may differ from the backtest), totals kept separately per class.
 
+## How long a price stays above a threshold (user's question, checked Oct 18)
+Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
+(50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
+- The win rate does rise with time held (commodity 50c: 55% at once -> 80% after 300 s), but so does the price:
+  edge after taker fee stays within about -5..+3c everywhere.
+- Commodities, held 30-120 s at 65-86c: +1.5 to +3.0c per contract, vs -1.8 to +0.7c buying at first touch;
+  positive for YES and NO favourites and in both periods. Best single rule: reached 86c and held 60 s:
+  341 trades, 97.4% won at 94.2c, +2.74c (90% range +1.33..+4.09, grouped by 15-min window), 6 of 7 days positive.
+  74c held 60 s +2.51 (-0.25..+4.99); 65c held 60 s +2.96 (-0.27..+5.95); 80c held 60 s +1.50.
+- Crypto, held at 86-95c for 60-120 s: about +1c (86c held 120 s: +1.56, range -0.16..+3.02, 7 of 8 days);
+  crypto 65-71c held 30-120 s is worse than buying at once (71c held 60 s: -4.6c, range -8.1..-1.4).
+- Picked from a grid of 17 x 8 cells, so expect the live edge to be smaller than these figures.
+- DATA TRAP found here: the tick files only log prices between 1c and 99c, so a decided market's data stops
+  early. Requiring data up to the close dropped 62% of crypto markets (the decided ones) and made fading the
+  favourite look like +15-30c. Never filter markets on having data near the close.
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
@@ -462,6 +478,7 @@ on crypto AND commodities (user: live crypto may differ from the backtest), tota
    04:00-08:00 UTC weak in V36 crypto, after-a-loss-on-the-same-coin weaker in V36.
 
 ## Data notes
+- Tick files log only prices between 1c and 99c: a market's data ends early once it is decided (see the hold-above section).
 - Old tick/book/prints logs (Sep 18 - Oct 8) were deleted on Oct 9 to free Drive space; the next grid
   runs on V37 data (plus any remaining .csv.gz and trades/settlements files).
 - Kalshi sent the V34-V36 bots ticks for every Kalshi market; V37 filters to its own 11 markets.
