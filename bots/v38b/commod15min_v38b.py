@@ -1,16 +1,10 @@
 # ============================================================
-# Commod15min V38b "open favourite + staggered reversal" — PAPER ONLY (no order is ever sent to Kalshi)
+# Commod15min V38b "open favourite" — PAPER ONLY (no order is ever sent to Kalshi)
 #
 # OPENING BUY: in the first 60 seconds of each market, buy 10 contracts of the side whose ask is 56-95c
-#   (quick order: at the ask, Kalshi taker fee). One opening buy per market. No buy if the spread is over 5c.
-# REVERSAL: if, at any time after that, the bought side's bid falls to its trigger, buy 20 contracts of the
-#   OTHER side at its ask in one order. Kalshi nets it: the 10 held are closed (sold at 100c minus that ask)
-#   and 10 of the other side are held. The log and totals show it that way.
-#   The trigger depends on the opening price:
-#       bought 56-65c -> reversal at 20c      bought 66-70c -> reversal at 30c
-#       bought 71-80c -> reversal at 40c      bought 81-95c -> reversal at 47c
-#   One reversal per market, not in the last 30 seconds, not when the spread is over 5c.
-# Everything is held to settlement ($1 or $0). Crypto and commodities, with separate totals.
+#   (quick order: at the ask, Kalshi taker fee). One buy per market. No buy if the spread is over 5c.
+# HOLD every position to settlement ($1 or $0). No sells, no reversals.
+# Crypto and commodities, with separate totals and a line per opening-price band.
 # No files are written: results are in this log only (status every 15 minutes).
 # ============================================================
 
@@ -41,12 +35,10 @@ TRADE_CLASSES = {"crypto", "commodity"}
 OPEN_WINDOW_SEC = 60      # opening buy only in the first 60 seconds of the market
 OPEN_MIN_C      = 56      # buy the side whose ask is 56c ...
 OPEN_MAX_C      = 95      # ... to 95c
-CONTRACTS       = 10      # opening buy
-REVERSAL_MULT   = 2       # reversal buys 2 x the opening contracts of the other side
-# (lowest opening price, highest opening price, reversal when the bought side's bid falls to this)
-REVERSAL_TIERS  = [(56, 65, 20), (66, 70, 30), (71, 80, 40), (81, 95, 47)]
-REVERSAL_MIN_LEFT_SEC = 30   # no reversal in the last 30 seconds
-MAX_SPREAD_C    = 5       # no buy (opening or reversal) when ask - bid is wider than this
+CONTRACTS       = 10      # per opening buy, held to settlement
+# opening-price bands, for the totals only
+PRICE_BANDS     = [(56, 65), (66, 70), (71, 80), (81, 95)]
+MAX_SPREAD_C    = 5       # no buy when ask - bid is wider than this
 DEADBAND_SEC    = 2       # never act this close to the close
 
 STATUS_EVERY_SEC    = 900
@@ -285,25 +277,15 @@ def make_feed(k):
 CRYPTO = {"BTC", "ETH", "SOL", "XRP", "DOGE"}
 def cls(a): return "crypto" if a in CRYPTO else "commodity"
 
-def trigger_for(px):
-    """Reversal price for an opening buy at px (None if px is outside every tier)."""
-    for lo, hi, trig in REVERSAL_TIERS:
-        if lo <= px <= hi: return trig
-    return None
-
-def tier_name(px):
-    for lo, hi, trig in REVERSAL_TIERS:
+def band_name(px):
+    for lo, hi in PRICE_BANDS:
         if lo <= px <= hi: return f"{lo}-{hi}c"
     return "?"
 
 class Trade:
-    """The opening buy and, if it happens, the reversal buy, in one market."""
+    """The opening buy in one market, held to settlement."""
     def __init__(self, yes, px, s2c):
         self.yes, self.px, self.s2c = yes, px, s2c
-        self.trig = trigger_for(px)
-        self.low = px                 # lowest bid of the bought side seen
-        self.rev_px = None            # price paid for the other side at the reversal
-        self.rev_s2c = None
 
 def _usd(c): return f"{'+' if c >= 0 else '-'}${abs(c) / 100:,.2f}"
 
@@ -311,10 +293,8 @@ def main():
     print(f"{BOT_NAME} — PAPER ONLY (no orders are sent)")
     print(f"markets: {', '.join(asset(s) for s in SERIES)}")
     print(f"opening buy: {CONTRACTS} contracts of the side whose ask is {OPEN_MIN_C}-{OPEN_MAX_C}c in the first "
-          f"{OPEN_WINDOW_SEC}s of the market (at the ask, taker fee) · no buy if the spread is over {MAX_SPREAD_C}c")
-    print("reversal: buy " + str(CONTRACTS * REVERSAL_MULT) + " of the other side when the bought side's bid falls to: "
-          + ", ".join(f"{t}c (bought {lo}-{hi}c)" for lo, hi, t in REVERSAL_TIERS)
-          + f" · once per market · not in the last {REVERSAL_MIN_LEFT_SEC}s · hold everything to settlement")
+          f"{OPEN_WINDOW_SEC}s of the market (at the ask, taker fee) · no buy if the spread is over {MAX_SPREAD_C}c · "
+          f"hold to settlement")
     print("files: none — results are shown here only")
     k = load_key()
     sess = requests.Session()
@@ -322,9 +302,9 @@ def main():
     lock = threading.RLock()
     markets, rest_px, trades = {}, {}, {}
     settle_due, settled = {}, set()
-    def new_tally(): return {"markets": 0, "held": 0, "won": 0, "rev": 0, "rev_won": 0, "open_net": 0, "rev_net": 0}
+    def new_tally(): return {"markets": 0, "won": 0, "net": 0, "cost": 0}
     run = {c: new_tally() for c in ("crypto", "commodity")}
-    by_tier = {(c, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for lo, hi, _ in REVERSAL_TIERS}
+    by_band = {(c, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for lo, hi in PRICE_BANDS}
 
     def s2c_of(t):
         m = markets.get(t)
@@ -343,30 +323,14 @@ def main():
         if not (0 <= yb < ya <= 100): return
         c = cls(asset(t))
         if c not in TRADE_CLASSES: return
-        spread_ok = ya - yb <= MAX_SPREAD_C
         with lock:
-            tr = trades.get(t)
-            # opening buy: first 60 s, the side whose ask is 56-95c
-            if tr is None:
-                if not (900 - OPEN_WINDOW_SEC <= s2c <= 905) or not spread_ok: return
-                for yes, ask in ((True, ya), (False, 100 - yb)):
-                    if OPEN_MIN_C <= ask <= OPEN_MAX_C:
-                        tr = trades[t] = Trade(yes, ask, s2c)
-                        say(f"BUY  {CONTRACTS}x {'YES' if yes else 'NO'} @ {ask}c  {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left  "
-                            f"· reversal if its bid falls to {tr.trig}c")
-                        return
-                return
-            # reversal: the bought side's bid falls to the trigger
-            hb = yb if tr.yes else 100 - ya
-            tr.low = min(tr.low, hb)
-            if tr.rev_px is None and hb <= tr.trig and s2c >= REVERSAL_MIN_LEFT_SEC and spread_ok:
-                tr.rev_px = 100 - yb if tr.yes else ya          # the other side's ask
-                tr.rev_s2c = s2c
-                n = CONTRACTS * REVERSAL_MULT
-                held, other_side = ("YES", "NO") if tr.yes else ("NO", "YES")
-                say(f"REVERSAL {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left: its bid fell to {hb}c (trigger {tr.trig}c) — "
-                    f"one order of {n}x {other_side} @ {tr.rev_px}c closes the {CONTRACTS} {held} (bought {tr.px}c, "
-                    f"out at {100 - tr.rev_px}c) and holds {CONTRACTS} {other_side} @ {tr.rev_px}c")
+            if t in trades: return
+            if not (900 - OPEN_WINDOW_SEC <= s2c <= 905) or ya - yb > MAX_SPREAD_C: return
+            for yes, ask in ((True, ya), (False, 100 - yb)):
+                if OPEN_MIN_C <= ask <= OPEN_MAX_C:
+                    trades[t] = Trade(yes, ask, s2c)
+                    say(f"BUY  {CONTRACTS}x {'YES' if yes else 'NO'} @ {ask}c  {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left  · hold to settlement")
+                    return
 
     def on_tick(t, yb, ya):
         if t in markets: evaluate(t)
@@ -377,36 +341,25 @@ def main():
         if tr is None: return
         c = cls(asset(t))
         won = (result == "yes") == tr.yes
-        held, other_side = ("YES", "NO") if tr.yes else ("NO", "YES")
-        rev_net = 0
-        if tr.rev_px is None:          # opening position held to settlement
-            open_net = CONTRACTS * (100 * won - tr.px) - taker_fee_c(CONTRACTS, tr.px)
-            otxt = f"opening {held} @ {tr.px}c held, {'WON' if won else 'lost'} {_usd(open_net)}"
-        else:                          # opening closed by the reversal order; 10 of the other side held to settlement
-            open_net = CONTRACTS * ((100 - tr.rev_px) - tr.px) - taker_fee_c(CONTRACTS, tr.px)
-            rev_net = CONTRACTS * (100 * (not won) - tr.rev_px) - taker_fee_c(CONTRACTS * REVERSAL_MULT, tr.rev_px)
-            otxt = (f"opening {held} @ {tr.px}c closed at {100 - tr.rev_px}c {_usd(open_net)} + reversal {CONTRACTS} {other_side} "
-                    f"@ {tr.rev_px}c {'WON' if not won else 'lost'} {_usd(rev_net)} (fee of the {CONTRACTS * REVERSAL_MULT}-contract order included)")
-        for r in (run[c], by_tier[(c, tier_name(tr.px))]):
-            r["markets"] += 1; r["open_net"] += open_net; r["rev_net"] += rev_net
-            if tr.rev_px is None: r["held"] += 1; r["won"] += int(won)
-            else: r["rev"] += 1; r["rev_won"] += int(not won)
+        net = CONTRACTS * (100 * won - tr.px) - taker_fee_c(CONTRACTS, tr.px)
+        for r in (run[c], by_band[(c, band_name(tr.px))]):
+            r["markets"] += 1; r["won"] += int(won); r["net"] += net; r["cost"] += CONTRACTS * tr.px
         r = run[c]
-        say(f"SETTLED {result.upper()}  {asset(t)} ({c}) {t[-7:]}: {otxt}  = {_usd(open_net + rev_net)}  "
-            f"| {c} run {_usd(r['open_net'] + r['rev_net'])} over {r['markets']} markets")
+        say(f"SETTLED {result.upper()}  {asset(t)} ({c}) {t[-7:]}: {'YES' if tr.yes else 'NO'} @ {tr.px}c {'WON' if won else 'lost'} "
+            f"{_usd(net)}  | {c} run {_usd(r['net'])} over {r['markets']} markets ({r['won']} won)")
 
     def status():
         say("[status]")
         for c in ("crypto", "commodity"):
             r = run[c]
-            print(f"           {c:9}: {r['markets']:3} markets | held to settlement {r['held']:3}, won {r['won']:3} | "
-                  f"reversed {r['rev']:3}, reversal won {r['rev_won']:3} | opening trades {_usd(r['open_net']):>9}, "
-                  f"reversal trades {_usd(r['rev_net']):>9} | TOTAL {_usd(r['open_net'] + r['rev_net'])}")
-            for lo, hi, trig in REVERSAL_TIERS:
-                q = by_tier[(c, f"{lo}-{hi}c")]
+            avg = r["cost"] / CONTRACTS / r["markets"] if r["markets"] else 0
+            won = 100 * r["won"] / r["markets"] if r["markets"] else 0
+            print(f"           {c:9}: {r['markets']:3} markets, {r['won']:3} won ({won:.0f}%), avg buy {avg:.1f}c, net {_usd(r['net'])}")
+            for lo, hi in PRICE_BANDS:
+                q = by_band[(c, f"{lo}-{hi}c")]
                 if q["markets"]:
-                    print(f"              bought {lo}-{hi}c (reversal at {trig}c): {q['markets']:3} markets, held {q['held']} "
-                          f"({q['won']} won), reversed {q['rev']} ({q['rev_won']} won), total {_usd(q['open_net'] + q['rev_net'])}")
+                    print(f"              bought {lo}-{hi}c: {q['markets']:3} markets, {q['won']:3} won "
+                          f"({100 * q['won'] / q['markets']:.0f}%), net {_usd(q['net'])}")
 
     global FEED
     feed = FEED = make_feed(k)
