@@ -447,6 +447,17 @@ Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the 
   early. Requiring data up to the close dropped 62% of crypto markets (the decided ones) and made fading the
   favourite look like +15-30c. Never filter markets on having data near the close.
 
+## How many times a price hits a target (user's question, checked Oct 18)
+Test (analysis/hit_count.py, 3,080 markets, Oct 9-16): count each time a side's bid comes up to T (50, 53, ... 95c);
+a new hit counts only after the bid fell 3c+ below T. (a) final number of hits vs win rate; (b) buying at the k-th hit.
+- (a) No steady pattern. At 50-62c, markets that hit the target ONCE won most (crypto 50c: 63% with 1 hit vs
+  50-53% with 2+): one clean pass means it kept going; many hits = choppy coin flip. At 80-92c, 2-4 hits win a
+  little more than 1 hit (crypto 89c: 89% vs 92-93%; commodity 86c: 88% vs 91-92%).
+- (b) Buying on a repeat hit: crypto negative or noise at every level (86-92c, 2nd-4th hit: -0.9c).
+  Commodities 83-89c, 2nd or 3rd hit: +1.85c (1,046 trades, 89.5% won at 86.8c; 90% range -0.13..+3.75;
+  V37 +1.04, V38 +3.60; 5 of 8 days) vs +0.79c on the 1st hit. 5th+ hit: about 0 (commodity 50-77c 5th+ hits: -3 to -5c).
+- Weaker than the hold-60s rule (commodity 86c held 60 s +2.74, range +1.33..+4.09).
+
 ## Signals to (re)test on the full V37 week
 1. Spread: only buy when the spread is 1c.
 2. Time of day x day of week (user's note: Friday payday, after-work activity from ~6pm ET).
