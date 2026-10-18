@@ -4,7 +4,8 @@
 # OPENING BUY: in the first 60 seconds of each market, buy 10 contracts of the side whose ask is 56-95c
 #   (quick order: at the ask, Kalshi taker fee). One opening buy per market. No buy if the spread is over 5c.
 # REVERSAL: if, at any time after that, the bought side's bid falls to its trigger, buy 20 contracts of the
-#   OTHER side at its ask (Kalshi nets this: the 10 held are closed and 10 of the other side are held).
+#   OTHER side at its ask in one order. Kalshi nets it: the 10 held are closed (sold at 100c minus that ask)
+#   and 10 of the other side are held. The log and totals show it that way.
 #   The trigger depends on the opening price:
 #       bought 56-65c -> reversal at 20c      bought 66-70c -> reversal at 30c
 #       bought 71-80c -> reversal at 40c      bought 81-95c -> reversal at 47c
@@ -321,7 +322,7 @@ def main():
     lock = threading.RLock()
     markets, rest_px, trades = {}, {}, {}
     settle_due, settled = {}, set()
-    def new_tally(): return {"markets": 0, "won": 0, "rev": 0, "rev_won": 0, "open_net": 0, "rev_net": 0}
+    def new_tally(): return {"markets": 0, "held": 0, "won": 0, "rev": 0, "rev_won": 0, "open_net": 0, "rev_net": 0}
     run = {c: new_tally() for c in ("crypto", "commodity")}
     by_tier = {(c, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for lo, hi, _ in REVERSAL_TIERS}
 
@@ -362,8 +363,10 @@ def main():
                 tr.rev_px = 100 - yb if tr.yes else ya          # the other side's ask
                 tr.rev_s2c = s2c
                 n = CONTRACTS * REVERSAL_MULT
-                say(f"REVERSAL {n}x {'NO' if tr.yes else 'YES'} @ {tr.rev_px}c  {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left  "
-                    f"(bought {'YES' if tr.yes else 'NO'} @ {tr.px}c, its bid fell to {hb}c; trigger {tr.trig}c)")
+                held, other_side = ("YES", "NO") if tr.yes else ("NO", "YES")
+                say(f"REVERSAL {asset(t)} ({c}) {t[-7:]}  {s2c:.0f}s left: its bid fell to {hb}c (trigger {tr.trig}c) — "
+                    f"one order of {n}x {other_side} @ {tr.rev_px}c closes the {CONTRACTS} {held} (bought {tr.px}c, "
+                    f"out at {100 - tr.rev_px}c) and holds {CONTRACTS} {other_side} @ {tr.rev_px}c")
 
     def on_tick(t, yb, ya):
         if t in markets: evaluate(t)
@@ -374,31 +377,36 @@ def main():
         if tr is None: return
         c = cls(asset(t))
         won = (result == "yes") == tr.yes
-        open_net = CONTRACTS * (100 * won - tr.px) - taker_fee_c(CONTRACTS, tr.px)
+        held, other_side = ("YES", "NO") if tr.yes else ("NO", "YES")
         rev_net = 0
-        if tr.rev_px is not None:
-            n = CONTRACTS * REVERSAL_MULT
-            rev_net = n * (100 * (not won) - tr.rev_px) - taker_fee_c(n, tr.rev_px)
+        if tr.rev_px is None:          # opening position held to settlement
+            open_net = CONTRACTS * (100 * won - tr.px) - taker_fee_c(CONTRACTS, tr.px)
+            otxt = f"opening {held} @ {tr.px}c held, {'WON' if won else 'lost'} {_usd(open_net)}"
+        else:                          # opening closed by the reversal order; 10 of the other side held to settlement
+            open_net = CONTRACTS * ((100 - tr.rev_px) - tr.px) - taker_fee_c(CONTRACTS, tr.px)
+            rev_net = CONTRACTS * (100 * (not won) - tr.rev_px) - taker_fee_c(CONTRACTS * REVERSAL_MULT, tr.rev_px)
+            otxt = (f"opening {held} @ {tr.px}c closed at {100 - tr.rev_px}c {_usd(open_net)} + reversal {CONTRACTS} {other_side} "
+                    f"@ {tr.rev_px}c {'WON' if not won else 'lost'} {_usd(rev_net)} (fee of the {CONTRACTS * REVERSAL_MULT}-contract order included)")
         for r in (run[c], by_tier[(c, tier_name(tr.px))]):
-            r["markets"] += 1; r["won"] += int(won); r["open_net"] += open_net; r["rev_net"] += rev_net
-            if tr.rev_px is not None: r["rev"] += 1; r["rev_won"] += int(not won)
+            r["markets"] += 1; r["open_net"] += open_net; r["rev_net"] += rev_net
+            if tr.rev_px is None: r["held"] += 1; r["won"] += int(won)
+            else: r["rev"] += 1; r["rev_won"] += int(not won)
         r = run[c]
-        rtxt = "" if tr.rev_px is None else f" + reversal {CONTRACTS * REVERSAL_MULT}x @ {tr.rev_px}c {'WON' if not won else 'lost'} {_usd(rev_net)}"
-        say(f"SETTLED {result.upper()}  {asset(t)} ({c}) {t[-7:]}: opening {'YES' if tr.yes else 'NO'} @ {tr.px}c "
-            f"{'WON' if won else 'lost'} {_usd(open_net)}{rtxt}  = {_usd(open_net + rev_net)}  "
+        say(f"SETTLED {result.upper()}  {asset(t)} ({c}) {t[-7:]}: {otxt}  = {_usd(open_net + rev_net)}  "
             f"| {c} run {_usd(r['open_net'] + r['rev_net'])} over {r['markets']} markets")
 
     def status():
         say("[status]")
         for c in ("crypto", "commodity"):
             r = run[c]
-            print(f"           {c:9}: {r['markets']:3} markets, opening won {r['won']:3}, net {_usd(r['open_net']):>9} | "
-                  f"reversals {r['rev']:3}, won {r['rev_won']:3}, net {_usd(r['rev_net']):>9} | TOTAL {_usd(r['open_net'] + r['rev_net'])}")
+            print(f"           {c:9}: {r['markets']:3} markets | held to settlement {r['held']:3}, won {r['won']:3} | "
+                  f"reversed {r['rev']:3}, reversal won {r['rev_won']:3} | opening trades {_usd(r['open_net']):>9}, "
+                  f"reversal trades {_usd(r['rev_net']):>9} | TOTAL {_usd(r['open_net'] + r['rev_net'])}")
             for lo, hi, trig in REVERSAL_TIERS:
                 q = by_tier[(c, f"{lo}-{hi}c")]
                 if q["markets"]:
-                    print(f"              bought {lo}-{hi}c (reversal at {trig}c): {q['markets']:3} markets, {q['won']:3} won, "
-                          f"{q['rev']:3} reversals ({q['rev_won']} won), total {_usd(q['open_net'] + q['rev_net'])}")
+                    print(f"              bought {lo}-{hi}c (reversal at {trig}c): {q['markets']:3} markets, held {q['held']} "
+                          f"({q['won']} won), reversed {q['rev']} ({q['rev_won']} won), total {_usd(q['open_net'] + q['rev_net'])}")
 
     global FEED
     feed = FEED = make_feed(k)

@@ -49,23 +49,26 @@ with contextlib.redirect_stdout(buf):
     except KeyboardInterrupt: pass
 txt = buf.getvalue(); print(txt)
 fee = g["taker_fee_c"]
-b_open = 10 * (0 - 59) - fee(10, 59); b_rev = 20 * (100 - 81) - fee(20, 81)
-e_open = 10 * (0 - 80) - fee(10, 80); e_rev = 20 * (100 - 60) - fee(20, 60)
+b_open = 10 * (19 - 59) - fee(10, 59); b_rev = 10 * (100 - 81) - fee(20, 81)      # closed at 100-81 = 19c; 10 NO held
+e_open = 10 * (40 - 80) - fee(10, 80); e_rev = 10 * (100 - 60) - fee(20, 60)      # closed at 40c; 10 YES held
+assert b_open + b_rev == 10 * (0 - 59) - fee(10, 59) + 20 * (100 - 81) - fee(20, 81)   # same money as holding both legs
 g_open = 10 * (100 - 85) - fee(10, 85); d_open = 10 * (0 - 64) - fee(10, 64)
 usd = g["_usd"]
 assert "BUY  10x YES @ 59c  BTC (crypto)" in txt and "reversal if its bid falls to 20c" in txt
-assert "REVERSAL 20x NO @ 81c  BTC" in txt and txt.count("REVERSAL 20x") == 2
-assert "BUY  10x NO @ 80c  ETH" in txt and "REVERSAL 20x YES @ 60c  ETH" in txt and "trigger 40c" in txt
+assert "REVERSAL BTC (crypto)" in txt and "one order of 20x NO @ 81c closes the 10 YES (bought 59c, out at 19c) and holds 10 NO @ 81c" in txt
+assert txt.count("REVERSAL ") == 2
+assert "BUY  10x NO @ 80c  ETH" in txt and "one order of 20x YES @ 60c closes the 10 NO (bought 80c, out at 40c) and holds 10 YES @ 60c" in txt and "trigger 40c" in txt
 assert "SOL (crypto)" not in txt.split("[status]")[0] and "XRP (crypto)" not in txt.split("[status]")[0]
-assert "BUY  10x YES @ 64c  DOGE" in txt and "REVERSAL 20x NO" not in txt.split("DOGE")[-1]
+assert "BUY  10x YES @ 64c  DOGE" in txt and "REVERSAL DOGE" not in txt
 assert "BUY  10x YES @ 85c  GOLD (commodity)" in txt and "reversal if its bid falls to 47c" in txt
-assert f"BTC (crypto) 1215-15: opening YES @ 59c lost {usd(b_open)} + reversal 20x @ 81c WON {usd(b_rev)}  = {usd(b_open + b_rev)}" in txt
-assert f"ETH (crypto) 1215-15: opening NO @ 80c lost {usd(e_open)} + reversal 20x @ 60c WON {usd(e_rev)}" in txt
-assert f"GOLD (commodity) 1215-15: opening YES @ 85c WON {usd(g_open)}  = {usd(g_open)}" in txt
+assert f"BTC (crypto) 1215-15: opening YES @ 59c closed at 19c {usd(b_open)} + reversal 10 NO @ 81c WON {usd(b_rev)}" in txt
+assert f"= {usd(b_open + b_rev)}" in txt and usd(b_open + b_rev) == "-$2.49"
+assert f"ETH (crypto) 1215-15: opening NO @ 80c closed at 40c {usd(e_open)} + reversal 10 YES @ 60c WON {usd(e_rev)}" in txt
+assert f"GOLD (commodity) 1215-15: opening YES @ 85c held, WON {usd(g_open)}  = {usd(g_open)}" in txt
 last = txt[txt.rindex("[status]"):]
 tot_c = b_open + b_rev + e_open + e_rev + d_open
-assert f"crypto   :   3 markets, opening won   0" in last and f"reversals   2, won   2" in last and f"TOTAL {usd(tot_c)}" in last, last
-assert f"commodity:   1 markets, opening won   1" in last and f"TOTAL {usd(g_open)}" in last
-assert "bought 56-65c (reversal at 20c):   2 markets" in last and "bought 71-80c (reversal at 40c):   1 markets" in last
+assert "crypto   :   3 markets | held to settlement   1, won   0 | reversed   2, reversal won   2" in last and f"TOTAL {usd(tot_c)}" in last, last
+assert "commodity:   1 markets | held to settlement   1, won   1 | reversed   0" in last and f"TOTAL {usd(g_open)}" in last
+assert "bought 56-65c (reversal at 20c):   2 markets, held 1 (0 won), reversed 1 (1 won)" in last and "bought 71-80c (reversal at 40c):   1 markets" in last
 assert "bought 81-95c (reversal at 47c):   1 markets" in last
 print("ALL CHECKS PASSED")
