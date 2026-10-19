@@ -40,6 +40,9 @@ Cancel: `DELETE /portfolio/events/orders/{order_id}`.
 ## Logs
 `mm15min_v2_fills.csv`, `mm15min_v2_markets.csv`, `mm15min_v2_settlements.csv`,
 `mm15min_v2_data/orders_YYYY-MM-DD_HH.csv.gz` (every order action, the exact request, timing).
+`mm15min_v2_data/ticks_` and `flow_YYYY-MM-DD_HH.csv.gz`: V38's data collection (every price change with the
+contracts at the best YES/NO bid and Coinbase spot; trades per market per 15 s), `LOG_MARKET_DATA = True`, about
+10 MB a day; pending flow is written out when the bot stops. Same columns as data/v38_ticks and data/v38_flow.
 
 `test_mm15min_v2.py`: dry run end to end (nothing sent, exact bodies, rate limit, caps, kill switch, daily loss),
 demo path against a fake Kalshi, and the mode guards.

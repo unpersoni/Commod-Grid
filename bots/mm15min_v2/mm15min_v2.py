@@ -30,6 +30,8 @@
 #
 # LOGS (Drive): mm15min_v2_fills.csv, mm15min_v2_markets.csv, mm15min_v2_settlements.csv,
 #   mm15min_v2_data/orders_YYYY-MM-DD_HH.csv.gz — every order action with the exact request and its timing.
+#   mm15min_v2_data/ticks_ and flow_YYYY-MM-DD_HH.csv.gz — V38's data collection: every price change (with the
+#   contracts at the best YES / NO bid and Coinbase spot) and trades per market per 15 s. About 10 MB a day.
 # ============================================================
 
 import os, sys, collections, csv, json, time, math, base64, threading, uuid, datetime as dt
@@ -62,7 +64,7 @@ DRIVE     = '/content/drive/MyDrive/'
 FILLS_CSV   = DRIVE + 'mm15min_v2_fills.csv'
 MARKETS_CSV = DRIVE + 'mm15min_v2_markets.csv'
 SETTLE_CSV  = DRIVE + 'mm15min_v2_settlements.csv'
-DATA_DIR    = DRIVE + 'mm15min_v2_data/'      # orders_YYYY-MM-DD_HH.csv(.gz): every order action, hourly
+DATA_DIR    = DRIVE + 'mm15min_v2_data/'      # orders_, ticks_, flow_YYYY-MM-DD_HH.csv(.gz), hourly
 KILL_FILE   = DRIVE + 'STOP_MM15MIN.txt'      # create this file on Drive to stop: cancels all orders, no new ones
 
 SERIES = ["KXBTC15M", "KXETH15M", "KXSOL15M", "KXXRP15M", "KXDOGE15M",
@@ -88,6 +90,9 @@ MAX_WRITES_PER_SEC = 10      # Kalshi Basic API tier: 10 order actions per secon
 ORDER_WORKERS      = 16      # background threads sending orders, so a slow request never blocks price handling
 LATENCY_PROBE_SEC  = 60      # time a round trip to Kalshi every minute (shown in the status)
 LOG_ORDERS         = True    # every order action (with the exact request) to DATA_DIR/orders_*.csv(.gz)
+LOG_MARKET_DATA    = True    # V38 data collection: ticks_ (every price change + best-bid sizes + spot) and
+                             # flow_ (trades per market per 15 s) to DATA_DIR, hourly, gzipped (~10 MB a day)
+FLOW_BUCKET_SEC    = 15
 # ---- safety limits (all order modes) ----
 MAX_OPEN_ORDERS          = 60    # resting orders across all markets
 MAX_CONTRACTS_PER_MARKET = 220   # filled + resting, both strategies together, per market
@@ -123,6 +128,10 @@ MARKET_COLS = ["window", "asset", "class", "strategy", "result", "orders_placed"
                "orders_filled", "yes_ct", "yes_avg_px", "no_ct", "no_avg_px", "pnl_c", "maker_fee_c", "run_net_c"]
 SETTLE_COLS = ["logged_iso", "ticker", "asset", "close_time", "result", "floor_strike",
                "expiration_value", "status"]
+TICK_COLS   = ["ts_iso", "ticker", "asset", "yes_bid", "yes_ask", "sec_to_close", "spot_px",
+               "yes_bid_qty", "no_bid_qty"]
+FLOW_COLS   = ["bucket_iso", "ticker", "asset", "sec_to_close_end", "n_yes_taker", "ct_yes_taker",
+               "n_no_taker", "ct_no_taker", "avg_yes_px", "last_yes_px"]
 ORDER_COLS  = ["ts_iso", "mode", "action", "ticker", "strategy", "side", "price_c", "count", "client_order_id",
                "order_id", "result", "http", "rate_wait_ms", "build_ms", "rtt_ms", "decide_to_sent_ms", "request"]
 # ---------------- helpers ----------------
@@ -918,6 +927,9 @@ def main():
     mfh, mw = open_csv(MARKETS_CSV, MARKET_COLS)
     sfh, sw = open_csv(SETTLE_CSV, SETTLE_COLS)
     io_lock = threading.Lock()
+    kw = HourlyCSV(DATA_DIR, "ticks", TICK_COLS) if LOG_MARKET_DATA else None
+    fw2 = HourlyCSV(DATA_DIR, "flow", FLOW_COLS) if LOG_MARKET_DATA else None
+    flow = {}                        # (ticker, bucket start) -> [n_yes, ct_yes, n_no, ct_no, sum_px_ct, last_px]
 
     def s2c_of(t):
         m = markets.get(t)
@@ -1038,11 +1050,31 @@ def main():
                     if GATE: gw.create(t, o, markets[t]["close"], on_created)
 
     def on_tick(t, yb, ya):
-        if t in markets: evaluate(t)
+        if t not in markets: return
+        if kw:                                            # V38 tick log: every price change + best-bid sizes + spot
+            s2c = s2c_of(t); sp = spot_of(t); yq = nq = ""
+            if book:
+                try:
+                    tb = book.top(t, 1)
+                    if tb:
+                        yq = tb[0][0][1] if tb[0] else 0
+                        nq = tb[1][0][1] if tb[1] else 0
+                except Exception: pass
+            with io_lock:
+                try: kw.writerow([now_iso(), t, asset(t), yb, ya, "" if s2c is None else round(s2c, 1), "" if sp is None else sp, yq, nq])
+                except Exception as e: print(f"[log] ticks: {e}")
+        evaluate(t)
 
     def on_trade(t, yes_price, count, taker_side):
         """Simulated fills: a taker selling into the YES bids (taker bought NO) or into the NO bids (taker bought YES)."""
-        if t not in markets or not SIM: return
+        if t not in markets: return
+        if fw2:                                           # V38 trade flow: buyers of YES vs NO per 15 s
+            bk = int(time.time() // FLOW_BUCKET_SEC) * FLOW_BUCKET_SEC
+            with io_lock:
+                f = flow.setdefault((t, bk), [0, 0, 0, 0, 0, None])
+                i = 0 if taker_side == "yes" else 2
+                f[i] += 1; f[i + 1] += count; f[4] += yes_price * count; f[5] = yes_price
+        if not SIM: return
         s2c = s2c_of(t)
         with lock:
             st = state.get(t)
@@ -1146,6 +1178,23 @@ def main():
         if fm is not None and fm < LOW_SPACE_MB:
             say(f"!!! DRIVE NEARLY FULL ({fm:,.0f} MB free) — logs may stop saving. Free up space now. !!!")
 
+    def flush_data(everything=False):
+        """Write the finished 15 s trade-flow buckets (all of them when stopping) and flush the data files."""
+        cur = int(time.time() // FLOW_BUCKET_SEC) * FLOW_BUCKET_SEC
+        with io_lock:
+            try:
+                for key in sorted(kk for kk in flow if everything or kk[1] < cur):
+                    t, b0 = key; f = flow.pop(key)
+                    ct = f[1] + f[3]
+                    m = markets.get(t)
+                    s2c = (m["close"] - dt.datetime.fromtimestamp(b0 + FLOW_BUCKET_SEC, dt.timezone.utc)).total_seconds() if m else ""
+                    if fw2: fw2.writerow([dt.datetime.fromtimestamp(b0, dt.timezone.utc).isoformat(), t, asset(t),
+                                          round(s2c, 1) if s2c != "" else "", f[0], f[1], f[2], f[3],
+                                          round(f[4] / ct, 2) if ct else "", f[5]])
+                if kw: kw.flush()
+                if fw2: fw2.flush()
+            except Exception as e: print(f"[log] data files: {e}")
+
     def probe_loop():
         while True:
             time.sleep(LATENCY_PROBE_SEC)
@@ -1165,7 +1214,7 @@ def main():
     if MODE == "demo": feed.on_fill = on_fill
     feed.ready.wait(timeout=10)
 
-    last_refresh, last_status, last_kill = 0, time.time(), 0
+    last_refresh, last_status, last_kill, last_flush = 0, time.time(), 0, time.time()
     last_bookchk, last_vs, book_stale = time.time(), -1, 0
     try:
         while True:
@@ -1227,6 +1276,9 @@ def main():
                     with lock: state.pop(t, None)
                 else:
                     due[0] = time.time() + SETTLE_RETRY_SEC
+            if (kw or fw2) and time.time() - last_flush > 2:   # write finished flow buckets, flush the data files
+                last_flush = time.time()
+                flush_data()
             if time.time() - last_status >= STATUS_EVERY_SEC:
                 last_status = time.time()
                 status()
@@ -1256,8 +1308,11 @@ def main():
     finally:
         feed.stop(); spot.stop()
         if book: book.stop()
+        if kw or fw2: flush_data(everything=True)        # nothing is lost when the bot is stopped
         with io_lock:
             for fh in (ffh, mfh, sfh): fh.close()
+            for h in (kw, fw2):
+                if h: h.close()
         if gw and gw.log: gw.log.close()
 
 def make_private_feed(k):

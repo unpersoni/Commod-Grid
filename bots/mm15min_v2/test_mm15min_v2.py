@@ -15,6 +15,10 @@ def load(out, **over):
 
 class Book:
     def __init__(s): s.books = {}; s.version = {}; s.ready = threading.Event(); s.ready.set()
+    def top(s, t, n=3):
+        b = s.books.get(t)
+        if b is None: return None
+        return (sorted(b["yes"].items(), reverse=True)[:n], sorted(b["no"].items(), reverse=True)[:n])
     def level_qty(s, t, side, p):
         b = s.books.get(t)
         return None if b is None else b[side].get(p, 0.0)
@@ -136,6 +140,19 @@ assert "[safety] DAILY LOSS LIMIT would stop new orders now" in txt and "dry run
 assert "no new orders until tomorrow" not in txt and "dry run: the limit would have stopped new orders at" in txt
 last = txt[txt.rindex("[status]"):]
 assert "order actions built, not sent:" in last and "busiest second" in last and "decision -> request ready" in last and "Kalshi round trip" in last
+def data_rows(prefix):
+    rows = []
+    for f in sorted(glob.glob(f"{out}/mm15min_v2_data/{prefix}_*")):
+        fh = gzip.open(f, "rt") if f.endswith(".gz") else open(f)
+        rows += list(csv.DictReader(fh))
+    return rows
+tk = data_rows("ticks"); fl = data_rows("flow")
+assert tk and {r["asset"] for r in tk} >= {"GOLD", "BTC", "ETH", "WTI"} and tk[0]["yes_bid_qty"] != "", tk[:2]
+assert any(r["ticker"] == M["G"] and r["yes_bid"] == "88" and r["yes_bid_qty"] == "5.0" and r["no_bid_qty"] == "30.0" for r in tk), [r for r in tk if r["ticker"] == M["G"]][:3]      # top book level (89: 5) and NO top (11: 30), as V38 logged
+g_fl = [r for r in fl if r["ticker"] == M["G"]]
+assert sum(int(r["ct_no_taker"]) for r in g_fl) == 55, g_fl        # the two GOLD trades (30 + 25) where takers bought NO
+e_fl = [r for r in fl if r["ticker"] == M["E"]]
+assert sum(int(r["ct_yes_taker"]) for r in e_fl) == 80 and e_fl[0]["last_yes_px"] == "5"
 print("DRY RUN CHECKS PASSED")
 
 # ---------------- 2) DEMO path against a fake Kalshi ----------------
@@ -177,6 +194,7 @@ assert any(c[1].endswith("/portfolio/events/orders/old-1") for c in dels)       
 assert any(c[1].endswith("/portfolio/events/orders/oid-2") or c[1].endswith("/portfolio/events/orders/oid-3") for c in dels)   # cancelled at the close / stop
 fills2 = list(csv.DictReader(open(f"{out2}/mm15min_v2_fills.csv")))
 assert len(fills2) == 1 and fills2[0]["how"] == "exchange fill" and float(fills2[0]["contracts"]) == 4 and fills2[0]["px"] == "88"
+assert glob.glob(f"{out2}/mm15min_v2_data/flow_*"), "demo mode must log trade flow too"
 print("DEMO PATH CHECKS PASSED")
 
 # ---------------- 3) mode guards ----------------
