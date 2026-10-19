@@ -132,7 +132,8 @@ g_fav = [f for f in fills if f["asset"] == "GOLD" and f["strategy"] == "fav"]
 assert sum(float(f["contracts"]) for f in g_fav if f["how"] == "queue") == 5, g_fav          # 50 ahead used up, then 5
 assert sum(float(f["contracts"]) for f in g_fav if f["how"] == "ask reached our bid") == 5, g_fav   # YES ask came down to 88
 assert sum(float(f["contracts"]) for f in fills if f["asset"] == "ETH" and f["side"] == "NO") == 20, [f for f in fills if f["asset"] == "ETH"]
-assert "DAILY LOSS LIMIT" in txt
+assert "[safety] DAILY LOSS LIMIT would stop new orders now" in txt and "dry run keeps going" in txt
+assert "no new orders until tomorrow" not in txt and "dry run: the limit would have stopped new orders at" in txt
 last = txt[txt.rindex("[status]"):]
 assert "order actions built, not sent:" in last and "busiest second" in last and "decision -> request ready" in last and "Kalshi round trip" in last
 print("DRY RUN CHECKS PASSED")

@@ -22,7 +22,8 @@
 #   no balance lookups before an order (Kalshi checks collateral itself); timing logged per order
 #   (decision -> request ready, build + sign, Kalshi round trip).
 # SAFETY: post-only (never takes liquidity / pays taker fees) · every order expires 25 s before the close on
-#   Kalshi's side · max 60 resting orders · max 220 contracts per market · no new orders after a -$100 day ·
+#   Kalshi's side · max 60 resting orders · max 220 contracts per market · no new orders after a -$20 day (no limit on gains;
+#   dry run only reports it) ·
 #   kill switch: create STOP_MM15MIN.txt on Drive (cancels everything) · cancel-all at start and stop ·
 #   demo/live: a Kalshi order group cancels everything if 300+ contracts fill within 15 s ·
 #   nothing is done when a market's close time is unknown.
@@ -90,7 +91,8 @@ LOG_ORDERS         = True    # every order action (with the exact request) to DA
 # ---- safety limits (all order modes) ----
 MAX_OPEN_ORDERS          = 60    # resting orders across all markets
 MAX_CONTRACTS_PER_MARKET = 220   # filled + resting, both strategies together, per market
-DAILY_LOSS_LIMIT_USD     = 100   # no new orders once today's settled net is below -$100 (UTC day)
+DAILY_LOSS_LIMIT_USD     = 20    # no new orders once today's settled net is below -$20 (UTC day). No limit on gains.
+                                 # dry_run only logs "would have stopped" and keeps going (data is not cut)
 ORDER_GROUP_LIMIT        = 300   # demo/live: Kalshi cancels all our orders if more than this fills within 15 s
 # ---- Kalshi order endpoints (V2); checked by the demo run ----
 ORDER_CREATE_PATH = "/portfolio/events/orders"
@@ -898,7 +900,7 @@ def main():
     run = {key: {"net": 0, "fee": 0, "fills": 0, "ct": 0.0, "won_ct": 0.0, "markets": 0} for key in KEYS}
     day = {"date": now().date(), "net": 0}
     blocked = collections.Counter()
-    flags = {"kill": False, "halted": False}
+    flags = {"kill": False, "halted": False, "would_halt": None}
 
     def open_csv(path, cols):
         if os.path.exists(path):                       # a file with other columns: set it aside
@@ -1068,7 +1070,7 @@ def main():
         c = cls(asset(t))
         by = collections.defaultdict(list)
         for f in fills: by[f["strat"]].append(f)
-        if now().date() != day["date"]: day.update(date=now().date(), net=0); flags["halted"] = False
+        if now().date() != day["date"]: day.update(date=now().date(), net=0); flags.update(halted=False, would_halt=None)
         for s in STRATEGIES:
             fs = by.get(s, [])
             if not fs and not st.placed[s]: continue
@@ -1105,9 +1107,15 @@ def main():
                 parts = [f"{sides[sd][0]:g} {sd.upper()} @ {sides[sd][1]}c" for sd in ("yes", "no") if sides[sd][0]]
                 say(f"SETTLED [{s}] {asset(t)} ({c}) {t[-7:]} result {result.upper()}: {len(fs)} fills, {', '.join(parts)}  "
                     f"net {_usd(tot)}  | {s} {c} run {_usd(r['net'])} ({r['ct']:,.0f} contracts)")
-        if GATE and not flags["halted"] and day["net"] < -DAILY_LOSS_LIMIT_USD * 100:
-            flags["halted"] = True
-            say(f"!!! DAILY LOSS LIMIT: today's net {_usd(day['net'])} is below -${DAILY_LOSS_LIMIT_USD} — no new orders until tomorrow (UTC) !!!")
+        if GATE and day["net"] < -DAILY_LOSS_LIMIT_USD * 100:
+            if MODE == "dry_run":                      # dry run: report it, keep trading so the data is not cut
+                if flags["would_halt"] is None:
+                    flags["would_halt"] = now()
+                    say(f"[safety] DAILY LOSS LIMIT would stop new orders now (today's net {_usd(day['net'])} is below "
+                        f"-${DAILY_LOSS_LIMIT_USD}) — dry run keeps going")
+            elif not flags["halted"]:
+                flags["halted"] = True
+                say(f"!!! DAILY LOSS LIMIT: today's net {_usd(day['net'])} is below -${DAILY_LOSS_LIMIT_USD} — no new orders until tomorrow (UTC) !!!")
 
     def status():
         fm = drive_free_mb(os.path.dirname(FILLS_CSV))
@@ -1131,7 +1139,10 @@ def main():
         if gw:
             for line in gw.summary(): print(f"           {line}")
             if blocked: print("           blocked by safety limits: " + ", ".join(f"{k_} {v}" for k_, v in blocked.items()))
-            print(f"           today (UTC) net {_usd(day['net'])}" + ("  — DAILY LOSS LIMIT HIT, no new orders" if flags["halted"] else ""))
+            wh = flags["would_halt"]
+            print(f"           today (UTC) net {_usd(day['net'])} (stop at -${DAILY_LOSS_LIMIT_USD}, no limit on gains)"
+                  + ("  — DAILY LOSS LIMIT HIT, no new orders" if flags["halted"] else "")
+                  + (f"  — dry run: the limit would have stopped new orders at {wh:%H:%M} UTC" if wh else ""))
         if fm is not None and fm < LOW_SPACE_MB:
             say(f"!!! DRIVE NEARLY FULL ({fm:,.0f} MB free) — logs may stop saving. Free up space now. !!!")
 

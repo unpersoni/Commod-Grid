@@ -21,7 +21,7 @@ Kalshi round trip). A strict rate limiter keeps every 1-second span at or under 
 
 ## Safety
 Post-only orders · orders expire on Kalshi 25 s before the close · max 60 resting orders · max 220 contracts per market ·
-no new orders after a -$100 UTC day · kill switch: create `STOP_MM15MIN.txt` in My Drive (cancels everything) ·
+no new orders after a -$20 UTC day (net for the day; no limit on gains; in dry run it only logs "would have stopped") · kill switch: create `STOP_MM15MIN.txt` in My Drive (cancels everything) ·
 cancel-all at start (demo/live) and at stop · demo/live: Kalshi order group (cancels everything if 300+ contracts fill
 within 15 s) · no action when a market's close time is unknown.
 
