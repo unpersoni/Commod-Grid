@@ -6,7 +6,7 @@ DRY_RUN = True              # True  = practice: nothing is sent to Kalshi (fills
                             # False = LIVE, REAL MONEY (a 10-second countdown lets you stop it)
 
 TRADE_CRYPTO      = True    # BTC, ETH, SOL, XRP, DOGE                        False = no crypto markets
-TRADE_COMMODITIES = True    # GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM  False = no commodity markets
+TRADE_COMMODITIES = False   # GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM  False = no commodity markets
 
 SKIP_MARKETS = []           # turn off single markets by name, e.g. ["WTI"] or ["DOGE", "PALLADIUM"]
                             # names: BTC ETH SOL XRP DOGE GOLD SILVER WTI COPPER PLATINUM PALLADIUM

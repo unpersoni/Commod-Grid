@@ -65,6 +65,11 @@ M = {"B": "KXBTC15M-26OCT011215-15", "E": "KXETH15M-26OCT011215-15", "S": "KXSOL
 result = {M["B"]: "no", M["E"]: "yes", M["S"]: "yes", M["G"]: "yes", M["X"]: "yes"}
 api = []
 clock, feed = wire(g, M, {t: 885 for t in M.values()}, result, api)
+_fm, boom = g["fetch_market"], {"n": 0}
+def fm(sess, k, t):                                  # one bad answer while settling: the bot must keep going
+    if boom["n"] == 0: boom["n"] = 1; raise ValueError("bad json")
+    return _fm(sess, k, t)
+g["fetch_market"] = fm
 sent = []
 g["requests"].Session.post = lambda *a, **k: sent.append(("POST", a, k))      # nothing may be sent in a dry run
 def script1():
@@ -104,6 +109,7 @@ assert f"today (UTC) net {usd(b + e + gd)}, lowest " in last
 assert "DAILY LOSS STOP" not in txt                         # -$13.84 is well above -$50
 assert sorted(os.listdir(out)) == ["STOP_V38B.txt"], os.listdir(out)              # no files written by the bot
 assert not any(p == "/portfolio/intra_exchange_instance_transfer" for p, _ in api)
+assert "[error] ValueError: bad json — the bot keeps running (error #1)" in txt and boom["n"] == 1
 print("DRY RUN CHECKS PASSED")
 
 # ---------------- 2) LIVE path against a fake Kalshi at the production address ----------------
@@ -255,6 +261,9 @@ assert rf({}, True, 61, 59) == (0.0, None)
 assert rf({"fill_count": "10.00", "average_fill_price": "0.4900"}, False, 52, 50) == (10.0, 51)   # tie: NO = 100 - YES
 b = g6["fok_body"]("T", False, 82, 10, "id")
 assert b["side"] == "ask" and b["price"] == "0.1800" and b["time_in_force"] == "fill_or_kill" and b["count"] == "10.00"
+bn = g6["band_name"]
+assert [bn(x) for x in (54, 56, 65, 66, 80, 81, 95, 96, 97)] == ["56-65c", "56-65c", "56-65c", "66-70c", "71-80c",
+                                                                "81-95c", "81-95c", "81-95c", "81-95c"]
 print("FILL PARSING CHECKS PASSED")
 for d in glob.glob(f"{SP}/run_v38b3_*"): shutil.rmtree(d, ignore_errors=True)
 print("ALL CHECKS PASSED")

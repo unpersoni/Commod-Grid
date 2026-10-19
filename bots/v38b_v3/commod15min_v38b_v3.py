@@ -568,6 +568,9 @@ ALL_MARKETS = [asset(s) for s in SERIES]
 def cls(a): return "crypto" if a in CRYPTO else "commodity"
 
 def band_name(px):
+    """Band of the price paid. A fill can be outside 56-95c (up to +2c slippage above 95c, or better than the ask
+    below 56c): it is counted in the nearest band."""
+    px = min(max(px, PRICE_BANDS[0][0]), PRICE_BANDS[-1][1])
     for lo, hi in PRICE_BANDS:
         if lo <= px <= hi: return f"{lo}-{hi}c"
     return "?"
@@ -780,63 +783,69 @@ def main():
     feed.ready.wait(timeout=10)
 
     last_refresh, last_status, last_kill = 0, time.time(), 0
+    errors = {"n": 0}
     try:
         while True:
-            if time.time() - last_refresh >= MARKETS_REFRESH_SEC:
-                last_refresh = time.time()
-                try:
-                    ms = fetch_open(sess, k)
-                except Exception as e:
-                    print(f"[rest] {e}"); ms = None
-                if ms is not None:
-                    for m in ms:
-                        t, ct = m.get("ticker"), parse_iso(m.get("close_time"))
-                        if not t or not ct or t in settled: continue
-                        markets[t] = {"close": ct}
-                        yb, ya = px_c(m, "yes_bid"), px_c(m, "yes_ask")
-                        if yb is not None and ya is not None: rest_px[t] = (yb, ya)
-                    feed.track({t for t in markets if 0 < (s2c_of(t) or 0) <= 15 * 60 + 60})
-            if time.time() - last_kill >= 5:                     # kill switch: a file on Drive
-                last_kill = time.time()
-                if not flags["kill"] and os.path.exists(KILL_FILE):
-                    flags["kill"] = True
-                    say(f"!!! KILL SWITCH ({KILL_FILE} found): no new buys. Positions already held ride to settlement. "
-                        f"Delete the file and restart to resume. !!!")
-            new_day_check()
-            for t in list(markets):
-                s2c = s2c_of(t)
-                if s2c is None: continue
-                if s2c > -5:
-                    evaluate(t)
-                elif t not in settle_due:
-                    settle_due[t] = [time.time(), time.time() + SETTLE_GIVEUP_SEC]
-            checked = 0
-            for t, due in list(settle_due.items()):
-                if checked >= 4: break
-                if time.time() < due[0]: continue
-                if t not in trades and t not in pending:               # nothing bought here: no lookup needed
-                    settled.add(t); del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
-                    continue
-                checked += 1
-                m = fetch_market(sess, k, t)
-                res = m.get("result")
-                if res in ("yes", "no"):
-                    finish(t, res)
-                    settled.add(t)
-                    del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
-                elif time.time() > due[1]:
-                    with lock: tr = trades.pop(t, None)
-                    if tr:
-                        say(f"[settle] no result for {t} after {SETTLE_GIVEUP_SEC // 60} min — left out of the totals; "
-                            f"check it on Kalshi")
-                        close_done(tr.close)
-                    settled.add(t)
-                    del settle_due[t]; markets.pop(t, None)
-                else:
-                    due[0] = time.time() + SETTLE_RETRY_SEC
-            if time.time() - last_status >= STATUS_EVERY_SEC:
-                last_status = time.time()
-                status()
+            try:
+                if time.time() - last_refresh >= MARKETS_REFRESH_SEC:
+                    last_refresh = time.time()
+                    try:
+                        ms = fetch_open(sess, k)
+                    except Exception as e:
+                        print(f"[rest] {e}"); ms = None
+                    if ms is not None:
+                        for m in ms:
+                            t, ct = m.get("ticker"), parse_iso(m.get("close_time"))
+                            if not t or not ct or t in settled: continue
+                            markets[t] = {"close": ct}
+                            yb, ya = px_c(m, "yes_bid"), px_c(m, "yes_ask")
+                            if yb is not None and ya is not None: rest_px[t] = (yb, ya)
+                        feed.track({t for t in markets if 0 < (s2c_of(t) or 0) <= 15 * 60 + 60})
+                if time.time() - last_kill >= 5:                     # kill switch: a file on Drive
+                    last_kill = time.time()
+                    if not flags["kill"] and os.path.exists(KILL_FILE):
+                        flags["kill"] = True
+                        say(f"!!! KILL SWITCH ({KILL_FILE} found): no new buys. Positions already held ride to settlement. "
+                            f"Delete the file and restart to resume. !!!")
+                new_day_check()
+                for t in list(markets):
+                    s2c = s2c_of(t)
+                    if s2c is None: continue
+                    if s2c > -5:
+                        evaluate(t)
+                    elif t not in settle_due:
+                        settle_due[t] = [time.time(), time.time() + SETTLE_GIVEUP_SEC]
+                checked = 0
+                for t, due in list(settle_due.items()):
+                    if checked >= 4: break
+                    if time.time() < due[0]: continue
+                    if t not in trades and t not in pending:               # nothing bought here: no lookup needed
+                        settled.add(t); del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
+                        continue
+                    checked += 1
+                    m = fetch_market(sess, k, t)
+                    res = m.get("result")
+                    if res in ("yes", "no"):
+                        finish(t, res)
+                        settled.add(t)
+                        del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
+                    elif time.time() > due[1]:
+                        with lock: tr = trades.pop(t, None)
+                        if tr:
+                            say(f"[settle] no result for {t} after {SETTLE_GIVEUP_SEC // 60} min — left out of the totals; "
+                                f"check it on Kalshi")
+                            close_done(tr.close)
+                        settled.add(t)
+                        del settle_due[t]; markets.pop(t, None)
+                    else:
+                        due[0] = time.time() + SETTLE_RETRY_SEC
+                if time.time() - last_status >= STATUS_EVERY_SEC:
+                    last_status = time.time()
+                    status()
+            except Exception as e:                              # never let one bad pass stop the bot
+                errors["n"] += 1
+                if errors["n"] <= 20 or errors["n"] % 100 == 0:
+                    say(f"[error] {type(e).__name__}: {e} — the bot keeps running (error #{errors['n']})")
             time.sleep(LOOP_SEC)
     except KeyboardInterrupt:
         gw.pool.shutdown(wait=True)
