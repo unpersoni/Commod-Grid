@@ -456,6 +456,16 @@ through the bid). c per contract:
   worst case, where it beats the current mm by ~1c and is in line with the `fav` reference. That is no longer
   market making but a cheaper-band version of the favourite strategy; not proven positive out of sample.
 
+## Do the 5 crypto coins settle the same way? (user's question, Oct 20)
+analysis/crypto_same_direction.py, every settlement file in data/ (Sep 30 - Oct 17), 770 windows where all 5
+results are known. Each coin is up ~49-50% of the time.
+- All 5 the same way: 55.6% (all up 27.5%, all down 28.1%). If the coins were unrelated: 6.3%.
+- Splits: 5-0 55.6%, 4-1 24.7%, 3-2 19.7%. Any pair agrees 77-80% (BTC-ETH highest, 80.4%).
+- 4 of the other 4 follow BTC 55.6%, 3 of 4 19.4%; none 5.3%.
+- By day 40-70% (Oct 6 and 17 low, but only 12 and 6 windows); no clear hour-of-day pattern.
+Meaning for the crypto favourite strategies: a round's 5 buys are mostly one bet, not five. A bad round tends to
+lose on all 5 together (V38b at 10 contracts: about -$35), which is what the round-based daily stop sees.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
