@@ -510,6 +510,22 @@ No stop: -$682.81 (crypto -$180.72, commodity -$502.09; won 59.8%) -- a losing p
   (the user's observation). Halves are mixed (-$45.69 / +$46.38), 8 days, one losing period: suggestive, not proof.
 - Rolling rules can be seeded at start from Kalshi's history (the HISTORY cell code), so no warm-up hour.
 
+## V39 (V38b): which markets and price bands cause the losses? (user's question, Oct 20)
+analysis/v39_loss_sources.py, same replay as v39_stops.py (2,778 buys, Oct 9-16). c per contract (both halves):
+- Markets, consistent in both halves: losers PLATINUM -10.8 (-9.4/-11.7, won 51.5%), SILVER -8.7 (-9.9/-8.0),
+  WTI -6.9 (-6.3/-7.3), GOLD -4.5 (-1.9/-6.1); winners COPPER +4.2 (+1.7/+5.8), PALLADIUM +3.1 (+5.7/+1.5),
+  DOGE +0.8. BTC/ETH/SOL/XRP negative in the first half, about flat or positive in the second.
+  The user's live run on Oct 20 agrees on WTI (worst commodity, -$20) and COPPER (+), not on PLATINUM / SILVER
+  (both positive live): market rankings shift between periods; WTI is the most consistent loser across V38, the
+  replay and live.
+- Price bands: 84% of buys are at 56-65c (-2.0c; crypto -0.9, commodity -3.5; needs ~60.4% wins, got 58.4%).
+  66-70c is the worst band (-6.8c; commodity -13.8c on 94 buys, crypto -3.0c); 71-80c -2.5c; 81-95c +2.9c on
+  only 26 buys. No band below 81c makes money in this period.
+- Losing rounds (174 of 352, 49%): every market's share of the losses matches its share of buys; no single market
+  drives them. In a losing round a median 59% of the buys lose (they move together). Crypto lost in 84% of the
+  losing rounds, commodities in 48%, both in 32%: crypto makes the big losing rounds, commodity losses are
+  spread out and come from particular markets.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
