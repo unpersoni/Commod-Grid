@@ -541,6 +541,22 @@ worst case (only trade-through fills; c per fill, days up).
 - The user's V2 dry run (Oct 19-20) had crypto fav whole market at +3.42c over 11,795 contracts, so the later
   minutes were not losing then; the first-5-min edge is the historical pattern in both older datasets.
 
+## V39 x the 13 grid conditions (user's question, Oct 20)
+analysis/v39_conditions.py: V39's buy (first moment in the first 60 s with a side's ask at 56-95c, spread <= 5c,
+held) picked from the grid's condition rows (grid_rows2.pkl, V37 ticks + books, Oct 9-14): 2,082 buys (1,276
+crypto -2.15c per contract, won 60.6%; 806 commodities -3.60c, won 58.4%). Levels as in grid_run.py, every
+result split into halves. 13 conditions x 3 levels x 2 classes: about 1 in 4 cells "holds in both halves" by chance.
+- Not measurable at the open: 30 s / 60 s direction (needs 30-60 s of history; known for 0-3% of buys), coin / BTC
+  spot moves (15-17%), spot vs strike for commodities. Minute is always 0-1.
+- No condition makes V39 clearly profitable; most differences are a few cents and flip between halves.
+- Holding in both halves: crypto evening 18-24 ET -5.64c (won 57.2%, 491 buys; worst block 16-20 ET -7.83c) vs day
+  9-18 -0.77c and night 0-9 +2.15c; crypto markets that already leaned our way at the open -3.14c (990) vs opened
+  even +0.95c (251); commodities "previous market won this side" -4.70c vs "won the other side" -1.70c; commodity
+  spread 3-5c +0.81c vs 1c -5.10c; commodities with the other commodities leaning our way -0.02c vs mixed -4.54c.
+- Time of day across periods: crypto evenings were also worse than days in the Oct 1-10 check (8 of 13 days), the
+  one pattern seen twice; crypto nights flip (weakest Oct 1-10, best here). Commodity time of day flips
+  (Oct 1-10 evening worst, here daytime worst): not reliable.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
