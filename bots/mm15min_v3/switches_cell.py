@@ -5,13 +5,11 @@
 DRY_RUN = True              # must stay True in MM15Min V3 (live trading for resting orders is not built yet)
 
 # True = this strategy would trade this class LIVE (★ON in the log); False = dry run only.
-# Every strategy is always followed in dry run, so the log shows all six side by side.
+# Every strategy is always followed in dry run, so the log shows all four side by side.
 FAV_CRYPTO        = True    # favourite: bids on any side at 85-98c, whole market
 FAV_COMMODITIES   = True
 LEAN_CRYPTO       = False   # leader: crypto 75-90c in the first 5 minutes only
 LEAN_COMMODITIES  = False   #         commodities 75-84c, whole market
-MM_CRYPTO         = False   # two-sided: both sides at 3-97c
-MM_COMMODITIES    = False
 
 SKIP_MARKETS = []           # markets never live, by name, e.g. ["WTI"] or ["DOGE", "PALLADIUM"]
                             # names: BTC ETH SOL XRP DOGE GOLD SILVER WTI COPPER PLATINUM PALLADIUM

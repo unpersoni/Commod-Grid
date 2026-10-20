@@ -12,13 +12,14 @@ fills at most 5 orders per side per market, and nothing new is placed in the las
 |---|---|---|
 | `fav` favourite | 85-98c, whole market | 85-98c, whole market |
 | `lean` leader (new) | 75-90c, first 5 minutes only | 75-84c, whole market |
-| `mm` two-sided | 3-97c both sides, stop a side 30+ contracts heavier | same |
 
 `lean` comes from `analysis/mm_tune.py` and `mm_tune_v37.py` (FINDINGS_log.md, Oct 20).
 - **Backtest day:** +7.9c per contract in crypto, +5.2c in commodities.
 - **6 unseen days, worst case:** about break-even.
 
-No version of two-sided `mm` worked on the unseen days.
+V1/V2's two-sided `mm` (both sides at 3-97c) was removed on Oct 20. It lost about 1c per contract in every
+test and in V2's dry run (47,000 contracts, 49.7% won). The tick and trade-flow files still record the markets,
+so any new idea can be simulated from them.
 
 ## Switches
 ```python
@@ -27,8 +28,6 @@ FAV_CRYPTO        = True    # True = would be live (★ON), False = dry run only
 FAV_COMMODITIES   = True
 LEAN_CRYPTO       = False
 LEAN_COMMODITIES  = False
-MM_CRYPTO         = False
-MM_COMMODITIES    = False
 SKIP_MARKETS = []           # markets never live, e.g. ["WTI", "DOGE"]
 CONTRACTS = 10
 DAILY_LOSS_LIMIT_USD = 20
@@ -43,8 +42,8 @@ starts, with a message saying what's wrong. That covers:
 
 ## Order rate
 The switched-on strategies share Kalshi's 10 order actions per second, as they would live. Each switched-off
-strategy is timed on its own limit, as if it were live alone. The busy `mm` strategy (about 21,000 actions in
-V2's first run) can't delay `fav` in the dry run. In V2 one shared limit made orders wait up to 8 s.
+strategy is timed on its own limit, as if it were live alone, so the dry-run strategies never delay the
+switched-on ones. In V2, `mm`'s ~21,000 actions shared one limit with `fav` and made orders wait up to 8 s.
 
 ## Log
 Every 15 minutes there is one line per strategy and class: markets, fills, contracts, % won, net, c per contract,

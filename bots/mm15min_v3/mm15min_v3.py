@@ -1,15 +1,15 @@
 # ============================================================
 # MM15Min V3 — resting-bid strategies with switches; DRY RUN (live trading for resting orders is not built yet)
 #
-# THREE STRATEGIES (each on crypto and on commodities; a side is bid while its best bid is inside the band):
+# TWO STRATEGIES (each on crypto and on commodities; a side is bid while its best bid is inside the band):
 #   fav   "favourite": 10-contract bids at the best bid of any side priced 85-98c, whole market
 #   lean  "leader"   : the side already leading — crypto 75-90c in the first 5 minutes only,
 #                      commodities 75-84c whole market (analysis/mm_tune.py + mm_tune_v37.py, Oct 20)
-#   mm    "two-sided": both sides at 3-97c; stop a side 30+ contracts heavier than the other (unchanged from V1/V2)
+#   (V1/V2's two-sided "mm" was removed on Oct 20: it lost ~1c per contract in every test and in V2's dry run;
+#    the tick and trade-flow files keep the market data, so any new idea can still be simulated from them)
 #   up to 5 filled orders per side per market per strategy; nothing new in the last 30 s; hold to settlement.
 #
-# SWITCHES (the SWITCHES cell): FAV_CRYPTO, FAV_COMMODITIES, LEAN_CRYPTO, LEAN_COMMODITIES, MM_CRYPTO,
-#   MM_COMMODITIES and SKIP_MARKETS. True = this strategy trades this class LIVE once live trading is built;
+# SWITCHES (the SWITCHES cell): FAV_CRYPTO, FAV_COMMODITIES, LEAN_CRYPTO, LEAN_COMMODITIES and SKIP_MARKETS. True = this strategy trades this class LIVE once live trading is built;
 #   False = dry run. Every strategy is always followed in dry run, so the log shows all of them side by side.
 #   For now DRY_RUN must stay True: the switches mark what would be live (★ON) and the daily loss stop counts
 #   only the switched-on strategies.
@@ -63,8 +63,6 @@ FAV_CRYPTO        = _sw.get("FAV_CRYPTO", True)
 FAV_COMMODITIES   = _sw.get("FAV_COMMODITIES", True)
 LEAN_CRYPTO       = _sw.get("LEAN_CRYPTO", False)
 LEAN_COMMODITIES  = _sw.get("LEAN_COMMODITIES", False)
-MM_CRYPTO         = _sw.get("MM_CRYPTO", False)
-MM_COMMODITIES    = _sw.get("MM_COMMODITIES", False)
 SKIP_MARKETS      = _sw.get("SKIP_MARKETS", [])         # markets never live, by name, e.g. ["WTI", "DOGE"]
 # MODE:  "paper"   = V1 behaviour: simulated orders, no order code runs
 #        "dry_run" = the full order path runs (exact Kalshi requests built, signed, rate-limited, logged)
@@ -94,12 +92,9 @@ STRATEGIES = {
              "crypto": (85, 98, 900, 30), "commodity": (85, 98, 900, 30)},
     "lean": {"name": "leader",    "max_imbalance": None,
              "crypto": (75, 90, 900, 600), "commodity": (75, 84, 900, 30)},
-    "mm":   {"name": "two-sided", "max_imbalance": 30,
-             "crypto": (3, 97, 900, 30), "commodity": (3, 97, 900, 30)},
 }
 SWITCH_NAMES = {("fav", "crypto"): "FAV_CRYPTO", ("fav", "commodity"): "FAV_COMMODITIES",
-                ("lean", "crypto"): "LEAN_CRYPTO", ("lean", "commodity"): "LEAN_COMMODITIES",
-                ("mm", "crypto"): "MM_CRYPTO", ("mm", "commodity"): "MM_COMMODITIES"}
+                ("lean", "crypto"): "LEAN_CRYPTO", ("lean", "commodity"): "LEAN_COMMODITIES"}
 CONTRACTS           = _sw.get("CONTRACTS", 10)     # per order
 MAX_ORDERS_PER_SIDE = 5      # filled orders per side per market per strategy
 FROM_SEC            = 900    # place orders from the start of the market ...
