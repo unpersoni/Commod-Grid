@@ -11,6 +11,9 @@
 #   SKIP_MARKETS = []         turn off single markets by name, e.g. SKIP_MARKETS = ["WTI", "DOGE"]
 #   Markets switched off are still followed in DRY RUN (nothing sent), so every market's results stay visible.
 #
+# HISTORY cell (run it any time the bot is stopped): how V38b's rule did in the last 5 cycles, rebuilt from
+#   Kalshi's market list and 1-minute price history: per class, per price band and per market with streaks.
+#   An estimate; nothing is traded.
 # LOG: every 15 minutes, crypto and commodities each in a 🟢 LIVE section (green: real orders) and a ⚪ DRY RUN
 #   section: totals, price bands, and per market: win rate, net, current streak (W3 = 3 wins in a row), last 10 results.
 #
@@ -567,6 +570,115 @@ class QuickGateway:
                 f"avg slippage {avg_slip:+.2f}c · busiest second {peak} (limit {MAX_WRITES_PER_SEC}/s)",
                 f"speed (median / 95%): decision -> request ready {f(self.decide_ms)} · build + sign {f(self.build_ms)} · "
                 f"Kalshi round trip {f(self.probe_ms)}" + (f" · order round trip {f(self.rtt_ms)}" if self.live else "")]
+
+# ---------------- start-up history: the last cycles before this run, from Kalshi ----------------
+def _cents(d, key):
+    """A candle value in cents. Kalshi sends '<key>' in whole cents (56) and/or '<key>_dollars' ("0.5600")."""
+    if not isinstance(d, dict): return None
+    v = d.get(key + "_dollars")
+    if v not in (None, ""):
+        try: return round(float(v) * 100)
+        except (TypeError, ValueError): pass
+    v = d.get(key)
+    if v in (None, ""): return None
+    try: f = float(v)
+    except (TypeError, ValueError): return None
+    return round(f * 100) if (0 < f < 1 and f != int(f)) else round(f)
+
+def opening_buy(candle):
+    """V38b's buy from a market's first 1-minute candle: the opening quote, or the quote at the end of the
+    minute if the opening one does not qualify. Returns (yes?, ask paid) or None."""
+    for key in ("open", "close"):
+        yb, ya = _cents(candle.get("yes_bid"), key), _cents(candle.get("yes_ask"), key)
+        if yb is None or ya is None or not (0 <= yb < ya <= 100) or ya - yb > MAX_SPREAD_C: continue
+        for yes, ask in ((True, ya), (False, 100 - yb)):
+            if OPEN_MIN_C <= ask <= OPEN_MAX_C: return yes, ask
+    return None
+
+def fetch_history(sess, k, cycles, say):
+    """The last `cycles` settled 15-minute windows of every market and V38b's opening buy in each.
+    Returns (rows, closes, no_price) or (None, None, None) when Kalshi's history cannot be read."""
+    since = int(time.time()) - (cycles + 4) * 900
+    def settled(ser):
+        d = api_get(sess, k, "/markets", {"series_ticker": ser, "status": "settled", "min_close_ts": since, "limit": 100})
+        return [m for m in (d or {}).get("markets", []) or [] if m.get("result") in ("yes", "no") and parse_iso(m.get("close_time"))]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        ms = [m for lst in ex.map(settled, SERIES) for m in lst]
+    if not ms: return None, None, None
+    closes = sorted({parse_iso(m["close_time"]) for m in ms})[-cycles:]
+    ms = [m for m in ms if parse_iso(m["close_time"]) in closes]
+    shown = {"raw": False}
+    def one(m):
+        t, close = m["ticker"], parse_iso(m["close_time"])
+        start = parse_iso(m.get("open_time")) or (close - dt.timedelta(seconds=900))
+        s0 = int(start.timestamp())
+        d = api_get(sess, k, f"/series/{series_of(t)}/markets/{t}/candlesticks",
+                    {"start_ts": s0, "end_ts": s0 + 60, "period_interval": 1})
+        cs = sorted((d or {}).get("candlesticks", []) or [], key=lambda c: c.get("end_period_ts") or 0)
+        buy = opening_buy(cs[0]) if cs else None
+        if cs and buy is None and not shown["raw"] and _cents(cs[0].get("yes_ask"), "open") is None \
+                and _cents(cs[0].get("yes_ask"), "close") is None:
+            shown["raw"] = True
+            say(f"[history] could not read the prices in Kalshi's candle (first one shown): {json.dumps(cs[0])[:300]}")
+        return dict(ticker=t, asset=asset(t), cls=cls(asset(t)), close=close, result=m["result"],
+                    have_price=bool(cs), buy=buy)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        rows = list(ex.map(one, ms))
+    no_price = sum(1 for r in rows if not r["have_price"])
+    return rows, closes, no_price
+
+def history_report(sess, k, say, switched_on, cycles):
+    """How V38b's rule did in the last `cycles` cycles (an estimate from Kalshi's history; nothing is traded)."""
+    try:
+        rows, closes, no_price = fetch_history(sess, k, cycles, say)
+    except Exception as e:
+        say(f"[history] not available ({type(e).__name__}: {e})"); return
+    if not rows:
+        say("[history] Kalshi's market history could not be read — check the key and the connection, then run the cell again"); return
+    say(f"[history] THE LAST {len(closes)} CYCLES (closing {closes[0]:%H:%M}-{closes[-1]:%H:%M} UTC), "
+        f"from Kalshi's price history:")
+    print(f"           V38b's rule on each market's first-minute prices · not traded: an estimate (bought at the ask, "
+          f"{CONTRACTS} contracts, taker fee)")
+    for c in ("crypto", "commodity"):
+        rs = sorted([r for r in rows if r["cls"] == c and r["buy"]], key=lambda r: r["close"])
+        for r in rs:
+            yes, px = r["buy"]
+            r["won"] = (r["result"] == "yes") == yes
+            r["px"] = px
+            r["net"] = CONTRACTS * (100 * r["won"] - px) - taker_fee_c(CONTRACTS, px)
+        n, w = len(rs), sum(r["won"] for r in rs)
+        avg = sum(r["px"] for r in rs) / n if n else 0
+        print(f"  {c.upper():9} {n:3} markets, {w:3} won ({100 * w / n if n else 0:.0f}%), avg buy {avg:.1f}c, "
+              f"net {_usd(sum(r['net'] for r in rs))}")
+        for lo, hi in PRICE_BANDS:
+            q = [r for r in rs if band_name(r["px"]) == f"{lo}-{hi}c"]
+            if q:
+                qw = sum(r["won"] for r in q)
+                print(f"              bought {lo}-{hi}c: {len(q):3} markets, {qw:3} won ({100 * qw / len(q):.0f}%), "
+                      f"net {_usd(sum(r['net'] for r in q))}")
+        for a in [x for x in ALL_MARKETS if cls(x) == c]:
+            q = [r for r in rs if r["asset"] == a]
+            res = ["W" if r["won"] else "L" for r in q]
+            if q:
+                qw = sum(r["won"] for r in q)
+                print(f"              {a:9} {len(q):3} markets, {qw:3} won ({100 * qw / len(q):3.0f}%), "
+                      f"net {_usd(sum(r['net'] for r in q)):>9} · streak {streak(res):4} · last {len(closes)}: {''.join(res)}"
+                      + ("   ★ switched on" if a in switched_on else ""))
+    no_buy = sum(1 for r in rows if r["have_price"] and not r["buy"])
+    print(f"           no buy (no side at {OPEN_MIN_C}-{OPEN_MAX_C}c with a spread of {MAX_SPREAD_C}c or less in the first "
+          f"minute): {no_buy} markets" + (f" · no price history: {no_price}" if no_price else ""))
+
+def show_history(cycles=5):
+    """The HISTORY cell: how V38b's rule did in the last `cycles` 15-minute cycles (nothing is traded)."""
+    if not (isinstance(cycles, int) and 1 <= cycles <= 20):
+        sys.exit(f"HISTORY_CYCLES must be a whole number from 1 to 20 (it is {cycles!r})")
+    try: check_switches()
+    except SystemExit as e: print(f"(switches not checked: {e})")
+    k = load_key()
+    sess = requests.Session()
+    sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=16))
+    history_report(sess, k, lambda m: print(f"[{now():%H:%M:%S}] {m}"), set(trading_markets()), cycles)
+    print("           ★ switched on = in TRADE_CRYPTO / TRADE_COMMODITIES and not in SKIP_MARKETS (live when DRY_RUN = False)")
 # ---------------- the bot ----------------
 CRYPTO = {"BTC", "ETH", "SOL", "XRP", "DOGE"}
 ALL_MARKETS = [asset(s) for s in SERIES]

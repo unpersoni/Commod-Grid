@@ -2,6 +2,7 @@
 
 `commod15min_v38b_v3.py` is the notebook's bot-code cell without the API key (`KEY_ID = "__KEY_ID__"`).
 `switches_cell.py` is the notebook's last cell: the only cell you change. Running it starts the bot.
+`history_cell.py` is the cell before it: how the last cycles went (below).
 
 Strategy (V38b): in the first 60 s of each market, buy 10 contracts of the side whose ask is 56-95c (spread <= 5c),
 hold to settlement. Crypto and commodity totals are kept separate, with a line per opening-price band. No files are written.
@@ -57,6 +58,19 @@ Put the names in `SKIP_MARKETS`. Capitals don't matter. The names are `BTC ETH S
 | BTC and ETH only | `TRADE_COMMODITIES = False`, `SKIP_MARKETS = ["SOL", "XRP", "DOGE"]` |
 
 The first lines of the log confirm the setting, e.g. `trading: BTC, ETH, SOL, XRP, DOGE`.
+
+## The HISTORY cell
+`history_cell.py` is the cell between the bot code and the SWITCHES cell. Run it any time the bot is stopped (Colab
+runs one cell at a time). For the last `HISTORY_CYCLES` (default 5) settled 15-minute cycles, it fetches every
+market's result and its first-minute prices from Kalshi:
+- `GET /markets?series_ticker=…&status=settled&min_close_ts=…`;
+- `GET /series/{series}/markets/{ticker}/candlesticks`, 1-minute candles.
+
+It applies V38b's rule (the opening quote, or the quote at the end of the first minute: a side at 56-95c with a
+spread of 5c or less) and prints the same breakdown as the status, per class, per price band and per market, with
+streak and the last results. Switched-on markets are marked ★. It is an estimate: it buys at the quoted ask with no
+depth or slippage, and nothing is traded. If Kalshi's candle comes back in a shape the bot can't read, the first
+raw candle is printed.
 
 ## Orders (live and dry run use the same code path)
 Kalshi V2 `POST /portfolio/events/orders`:

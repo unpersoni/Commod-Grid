@@ -288,5 +288,65 @@ bn = g6["band_name"]
 assert [bn(x) for x in (54, 56, 65, 66, 80, 81, 95, 96, 97)] == ["56-65c", "56-65c", "56-65c", "66-70c", "71-80c",
                                                                 "81-95c", "81-95c", "81-95c", "81-95c"]
 print("FILL PARSING CHECKS PASSED")
+# ---------------- 6) start-up history from Kalshi (fake history) ----------------
+g7 = load(f"{SP}/run_v38b3_hist")
+T = int(time.time() // 900) * 900
+CL = [T - 900 * i for i in range(6)][::-1]                 # 6 settled windows, oldest first: the last 5 are used
+iso = lambda ts: dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+RES = {"BTC": ["no", "yes", "no", "yes", "yes", "yes"], "GOLD": ["no"] + ["yes"] * 5, "ETH": ["no"] * 6,
+       "SOL": ["yes"] * 6, "XRP": ["yes"] * 6, "DOGE": ["yes"] * 6}
+def candle(a_, s0):
+    if a_ == "BTC": return [{"end_period_ts": s0 + 60, "yes_bid": {"open": 60, "close": 61}, "yes_ask": {"open": 62, "close": 63}}]
+    if a_ == "GOLD": return [{"end_period_ts": s0 + 60, "yes_bid": {"open_dollars": "0.8400"}, "yes_ask": {"open_dollars": "0.8500"}}]
+    if a_ == "ETH": return [{"end_period_ts": s0 + 60, "yes_bid": {"open": 40, "close": 55}, "yes_ask": {"open": 50, "close": 57}}]
+    if a_ == "SOL": return []
+    if a_ == "XRP": return [{"end_period_ts": s0 + 60, "yes_bid": {"open": 50}, "yes_ask": {"open": 51}}]
+    if a_ == "DOGE": return [{"end_period_ts": s0 + 60, "odd_field": 1}]
+calls7 = []
+def api7(sess, k, path, params=None):
+    calls7.append((path, dict(params or {})))
+    if path == "/markets":
+        a_ = g7["asset"](params["series_ticker"])
+        if a_ not in RES: return {"markets": []}
+        assert params["status"] == "settled" and params["min_close_ts"] < CL[0]
+        return {"markets": [{"ticker": f"{params['series_ticker']}-W{c}", "close_time": iso(c), "open_time": iso(c - 900),
+                             "result": RES[a_][i]} for i, c in enumerate(CL)]}
+    if path.endswith("/candlesticks"):
+        assert params["period_interval"] == 1 and params["end_ts"] - params["start_ts"] == 60
+        return {"candlesticks": candle(g7["asset"](path.split("/")[2]), params["start_ts"])}
+    return None
+g7["api_get"] = api7
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    g7["history_report"](None, None, lambda m: print(f"[t] {m}"), {"BTC"}, 5)
+h = buf.getvalue(); print(h)
+fee = g7["taker_fee_c"]; usd = g7["_usd"]
+assert f"THE LAST 5 CYCLES (closing {dt.datetime.fromtimestamp(CL[1], dt.timezone.utc):%H:%M}-" in h
+btc = 4 * (10 * 38 - fee(10, 62)) + (-620 - fee(10, 62)); eth = 5 * (-570 - fee(10, 57)); gold = 5 * (150 - fee(10, 85))
+assert f"CRYPTO     10 markets,   4 won (40%), avg buy 59.5c, net {usd(btc + eth)}" in h, h
+assert f"COMMODITY   5 markets,   5 won (100%), avg buy 85.0c, net {usd(gold)}" in h
+assert re.search(r"BTC\s+5 markets,\s+4 won \( 80%\), net\s+\+\$\d+\.\d\d · streak W3\s+· last 5: WLWWW   ★ switched on", h), h
+assert re.search(r"ETH\s+5 markets,\s+0 won \(  0%\).* streak L5\s+· last 5: LLLLL\n", h)          # bought at 57c on the end-of-minute quote
+assert "bought 81-95c:   5 markets,   5 won (100%)" in h
+assert "no buy (no side at 56-95c with a spread of 5c or less in the first minute): 10 markets · no price history: 5" in h
+assert "could not read the prices in Kalshi's candle" in h and h.count("could not read the prices") == 1
+assert all(c[1]["start_ts"] + 900 in CL for c in calls7 if c[0].endswith("/candlesticks"))
+assert not any(c[1]["start_ts"] + 900 == CL[0] for c in calls7 if c[0].endswith("/candlesticks"))   # the 6th-oldest window is not fetched
+g7["api_get"] = lambda *a, **k: None
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf): g7["history_report"](None, None, lambda m: print(m), set(), 5)
+assert "history could not be read — check the key and the connection" in buf.getvalue()
+# the HISTORY cell itself: show_history() with the switches as set (crypto on, commodities off, DOGE skipped)
+g7["api_get"] = api7; g7["load_key"] = lambda: KEY
+g7.update(TRADE_COMMODITIES=False, SKIP_MARKETS=["DOGE"])
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf): g7["show_history"](5)
+h2 = buf.getvalue()
+assert "BTC " in h2 and re.search(r"BTC .*★ switched on", h2) and not re.search(r"GOLD .*★ switched on", h2), h2
+try: g7["show_history"](0); raise AssertionError("did not stop")
+except SystemExit as e: assert "HISTORY_CYCLES must be" in str(e)
+cell = open(f"{SP}/history_cell.py").read() if os.path.exists(f"{SP}/history_cell.py") else None
+if cell: compile(cell, "history_cell", "exec")
+print("HISTORY CHECKS PASSED")
 for d in glob.glob(f"{SP}/run_v38b3_*"): shutil.rmtree(d, ignore_errors=True)
 print("ALL CHECKS PASSED")
