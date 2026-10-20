@@ -526,6 +526,21 @@ analysis/v39_loss_sources.py, same replay as v39_stops.py (2,778 buys, Oct 9-16)
   losing rounds, commodities in 48%, both in 32%: crypto makes the big losing rounds, commodity losses are
   spread out and come from particular markets.
 
+## MM fav / lean entry points before the live build (user's question, Oct 20)
+analysis/mm_fav_entry.py: fav price band x time window per class; V38 queue model (c per contract, halves) and V37
+worst case (only trade-through fills; c per fill, days up).
+- Crypto fav: the profit is in the first 5 minutes. 85-98c first 5 min: V38 +12.33 (+11.47 / +13.09, $5.03 per
+  market), V37 +2.46 (4/6 days). First 8 min +6.72 / -2.51 (2/6); first 10 min +2.86 / -2.41; whole market (V3)
+  +1.25 / -1.96 (1/6); after minute 5 -0.20 / -2.05; last 7 min -1.63 / -1.03. Fewer contracts (4,000 vs 17,091
+  on V38) but more money per market. Band choice within the first 5 min matters little (85-90/85-95/85-98 the same).
+- Commodity fav: positive in every window and band on V38 (whole market 85-98c +4.20, +4.97 / +3.45) and slightly
+  positive on V37 (+0.42, 3/6 days); first 8 min (+5.30, V37 +0.70 4/5) and 85-90c (+4.99, V37 +0.58) a little
+  better, within the noise. No change needed.
+- Crypto lean overlaps crypto fav at 85-90c if fav moves to the first 5 min; lean 75-84c first 5 min: V38 +7.74
+  (+5.50 / +10.15), V37 -0.47 (2/6) vs 75-90c +7.92, -0.29: the same, without the overlap.
+- The user's V2 dry run (Oct 19-20) had crypto fav whole market at +3.42c over 11,795 contracts, so the later
+  minutes were not losing then; the first-5-min edge is the historical pattern in both older datasets.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
