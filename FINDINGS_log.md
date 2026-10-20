@@ -485,6 +485,31 @@ coins, 1,588 buys); each coin "leans" up/down by its YES mid at the open. c per 
 - In this older period V38b crypto as a whole was about -1c per contract; the user's recent runs (Oct 19-20) are
   better, so period matters.
 
+## V39 (V38b) stop rules: limit losses without stopping too early (user's question, Oct 20)
+Live V38b V3 lost $91.77 against a -$50 stop: the stop is checked once a whole round has settled (-$43 -> -$69.55
+in one round), and the next round's buys are placed in the same seconds the previous round settles, so 7 live buys
+were already open when it fired (-$22.22). analysis/v39_stops.py: V38b's opening buy replayed on all 11 markets,
+V37 + V38 ticks (Oct 9-16, 2,778 buys, 352 rounds, 8 UTC days), rules run round by round with that one-round lag.
+No stop: -$682.81 (crypto -$180.72, commodity -$502.09; won 59.8%) -- a losing period for the rule.
+| Rule | Live | Net | Worst day | Max drawdown | Beats random skipping |
+|---|---|---|---|---|---|
+| no stop | 100% | -$682.81 | -$274.21 | $819 | |
+| current (after a round, -$50) | 28% | -$314.85 | -$94.79 | $418 | 24% |
+| hard cap -$50 (open positions counted) | 28% | -$229.77 | -$49.82 | $363 | 38% |
+| hard cap -$100 | 51% | -$292.14 | -$98.89 | $456 | 60% |
+| per class: live while that class's last 2 rounds >= $0 | 46% | -$69.85 | -$131.10 | $224 | 90% |
+| per class: last 4 rounds (1 h) >= $0 | 46% | +$0.69 | -$124.52 | $231 | 94% |
+| per class: last 8 rounds >= $0 | 42% | -$153.22 | -$158.12 | $340 | 75% |
+| all classes together: last 4 rounds >= $0 | 44% | -$161.36 | -$127.37 | $247 | 78% |
+| per class (4 rounds) + hard cap -$100 | 40% | +$10.20 | -$94.99 | $198 | 95% |
+("Beats random": share of 1,000 random selections of the same size, whole round x class blocks, that did worse.)
+- Daily loss stops limit the size of a bad day (only the hard cap guarantees it) but pick trades no better than
+  chance: what follows a bad stretch is not worse than average.
+- Following each class's own last hour (counting dry-run results while it is off, so it can switch back on) does
+  better than chance at every look-back, best at 4 rounds: crypto and commodities run hot and cold separately
+  (the user's observation). Halves are mixed (-$45.69 / +$46.38), 8 days, one losing period: suggestive, not proof.
+- Rolling rules can be seeded at start from Kalshi's history (the HISTORY cell code), so no warm-up hour.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
