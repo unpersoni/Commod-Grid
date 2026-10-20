@@ -11,6 +11,9 @@
 #   INVERSE_MARKETS = ["WTI"] these markets buy the UNDERDOG instead: when one side's ask is 56-95c, buy the OTHER
 #                             side at its ask (WTI's favourite lost in every source; replay: favourite -6.9c,
 #                             underdog +2.2c per contract). Shown on their own "underdog" line in the status.
+# TIME OF DAY: the status and the HISTORY cell also split each class into day 9am-6pm, evening 6pm-12am and night
+#   12am-9am (US Eastern, by the market's open): crypto evenings were the weakest block in two checks
+#   (analysis/v39_conditions.py and the Oct 10 time-of-day check).
 #   SKIP_MARKETS = []         turn off single markets by name, e.g. SKIP_MARKETS = ["WTI", "DOGE"]
 #   Markets switched off are still followed in DRY RUN (nothing sent), so every market's results stay visible.
 #
@@ -590,7 +593,7 @@ def _cents(d, key):
     return round(f * 100) if (0 < f < 1 and f != int(f)) else round(f)
 
 def opening_buy(candle):
-    """V38b's buy from a market's first 1-minute candle: the opening quote, or the quote at the end of the
+    """V39's buy from a market's first 1-minute candle: the opening quote, or the quote at the end of the
     minute if the opening one does not qualify. Returns (yes?, ask paid, the other side's ask) or None."""
     for key in ("open", "close"):
         yb, ya = _cents(candle.get("yes_bid"), key), _cents(candle.get("yes_ask"), key)
@@ -600,7 +603,7 @@ def opening_buy(candle):
     return None
 
 def fetch_history(sess, k, cycles, say):
-    """The last `cycles` settled 15-minute windows of every market and V38b's opening buy in each.
+    """The last `cycles` settled 15-minute windows of every market and V39's opening buy in each.
     Returns (rows, closes, no_price) or (None, None, None) when Kalshi's history cannot be read."""
     since = int(time.time()) - (cycles + 4) * 900
     def settled(ser):
@@ -632,7 +635,7 @@ def fetch_history(sess, k, cycles, say):
     return rows, closes, no_price
 
 def history_report(sess, k, say, switched_on, cycles):
-    """How V38b's rule did in the last `cycles` cycles (an estimate from Kalshi's history; nothing is traded)."""
+    """How V39's rule did in the last `cycles` cycles (an estimate from Kalshi's history; nothing is traded)."""
     try:
         rows, closes, no_price = fetch_history(sess, k, cycles, say)
     except Exception as e:
@@ -641,7 +644,7 @@ def history_report(sess, k, say, switched_on, cycles):
         say("[history] Kalshi's market history could not be read — check the key and the connection, then run the cell again"); return
     say(f"[history] THE LAST {len(closes)} CYCLES (closing {closes[0]:%H:%M}-{closes[-1]:%H:%M} UTC), "
         f"from Kalshi's price history:")
-    print(f"           V38b's rule on each market's first-minute prices · not traded: an estimate (bought at the ask, "
+    print(f"           V39's rule on each market's first-minute prices · not traded: an estimate (bought at the ask, "
           f"{CONTRACTS} contracts, taker fee)")
     for c in ("crypto", "commodity"):
         rs = sorted([r for r in rows if r["cls"] == c and r["buy"]], key=lambda r: r["close"])
@@ -667,6 +670,11 @@ def history_report(sess, k, say, switched_on, cycles):
             qw = sum(r["won"] for r in q)
             print(f"              bought the UNDERDOG (inverse): {len(q):3} markets, {qw:3} won ({100 * qw / len(q):.0f}%), "
                   f"net {_usd(sum(r['net'] for r in q))}")
+        def _tod(b):
+            q = [r for r in rs if tod_block(r["close"]) == b]
+            return len(q), sum(r["won"] for r in q), sum(r["net"] for r in q)
+        tl = tod_line(_tod)
+        if tl: print(f"              {tl}")
         for a in [x for x in ALL_MARKETS if cls(x) == c]:
             q = [r for r in rs if r["asset"] == a]
             res = ["W" if r["won"] else "L" for r in q]
@@ -680,7 +688,7 @@ def history_report(sess, k, say, switched_on, cycles):
           f"minute): {no_buy} markets" + (f" · no price history: {no_price}" if no_price else ""))
 
 def show_history(cycles=5):
-    """The HISTORY cell: how V38b's rule did in the last `cycles` 15-minute cycles (nothing is traded)."""
+    """The HISTORY cell: how V39's rule did in the last `cycles` 15-minute cycles (nothing is traded)."""
     if not (isinstance(cycles, int) and 1 <= cycles <= 20):
         sys.exit(f"HISTORY_CYCLES must be a whole number from 1 to 20 (it is {cycles!r})")
     try: check_switches()
@@ -716,6 +724,27 @@ def tag(live): return LIVE_TAG if live else DRY_TAG
 def paint(text, live):
     """Live lines in bold green, dry-run lines in the normal colour (COLORS = False: no colour codes)."""
     return f"\x1b[1;32m{text}\x1b[0m" if (live and COLORS) else text
+
+TOD_BLOCKS = (("day", "day 9am-6pm"), ("evening", "evening 6pm-12am"), ("night", "night 12am-9am"))
+try:
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo("America/New_York")
+except Exception:                                   # no time-zone database: Eastern daylight time (UTC-4)
+    _ET = dt.timezone(dt.timedelta(hours=-4))
+
+def tod_block(close):
+    """Time of day (US Eastern) of a market's open: day 9am-6pm, evening 6pm-12am, night 12am-9am."""
+    if close is None: return None
+    h = (close - dt.timedelta(minutes=15)).astimezone(_ET).hour
+    return "day" if 9 <= h < 18 else ("evening" if h >= 18 else "night")
+
+def tod_line(get):
+    """'time of day (ET):' line from get(block) -> (markets, won, net cents), blocks with no markets left out."""
+    parts = []
+    for b, label in TOD_BLOCKS:
+        m, w, net = get(b)
+        if m: parts.append(f"{label} {m} mkts {100 * w / m:.0f}% won {_usd(net)}")
+    return ("time of day (ET): " + " · ".join(parts)) if parts else None
 
 def streak(res):
     """Current run of wins or losses from a list of 'W'/'L', e.g. 'W3'."""
@@ -798,6 +827,7 @@ def main():
     run = {(c, md): new_tally() for c in ("crypto", "commodity") for md in MODES}
     by_band = {(c, md, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for md in MODES for lo, hi in PRICE_BANDS}
     by_band.update({(c, md, "underdog"): new_tally() for c in ("crypto", "commodity") for md in MODES})
+    by_tod = {(c, md, b): new_tally() for c in ("crypto", "commodity") for md in MODES for b, _ in TOD_BLOCKS}
     per_mkt = {(a, md): dict(new_tally(), res=[]) for a in ALL_MARKETS for md in MODES}
     day = {"date": now().date(), "net": 0, "low": 0, "live": 0, "dry": 0}
     flags = {"kill": False, "halted": False, "would_halt": None}
@@ -897,7 +927,9 @@ def main():
         if tr.counts:
             day["net"] += net
             day["low"] = min(day["low"], day["net"])
-        for r in (run[(c, md)], by_band[(c, md, "underdog" if getattr(tr, "inv", False) else band_name(tr.px))], per_mkt[(a, md)]):
+        tb = tod_block(tr.close)
+        for r in (run[(c, md)], by_band[(c, md, "underdog" if getattr(tr, "inv", False) else band_name(tr.px))], per_mkt[(a, md)])\
+                 + ((by_tod[(c, md, tb)],) if tb else ()):
             r["markets"] += 1; r["won"] += int(won); r["net"] += net; r["cost"] += tr.n * tr.px; r["n"] += tr.n
         pm = per_mkt[(a, md)]
         pm["res"].append("W" if won else "L")
@@ -939,6 +971,8 @@ def main():
                     print(paint(f"              bought the UNDERDOG (inverse: {', '.join(sorted(x for x in inv if cls(x) == c))}): "
                                 f"{q['markets']:3} markets, {q['won']:3} won ({100 * q['won'] / q['markets']:.0f}%), "
                                 f"avg buy {q['cost'] / q['n']:.1f}c, net {_usd(q['net'])}", lv))
+                tl = tod_line(lambda b: (by_tod[(c, md, b)]["markets"], by_tod[(c, md, b)]["won"], by_tod[(c, md, b)]["net"]))
+                if tl: print(paint(f"              {tl}", lv))
                 for a in names:
                     pm = per_mkt[(a, md)]
                     if not pm["markets"] and a not in now_in: continue

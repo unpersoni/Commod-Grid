@@ -118,6 +118,18 @@ assert "DAILY LOSS STOP" not in txt                         # -$13.84 is well ab
 assert sorted(os.listdir(out)) == ["STOP_V38B.txt"], os.listdir(out)              # no files written by the bot
 assert not any(p == "/portfolio/intra_exchange_instance_transfer" for p, _ in api)
 assert "[error] ValueError: bad json — the bot keeps running (error #1)" in txt and boom["n"] == 1
+assert re.search(r"time of day \(ET\): (day 9am-6pm|evening 6pm-12am|night 12am-9am) 4 mkts 50% won " + re.escape(usd(b + e + so + x)), last), last
+assert re.search(r"time of day \(ET\): (day 9am-6pm|evening 6pm-12am|night 12am-9am) 1 mkts 100% won " + re.escape(usd(gd)), last), last
+utc = lambda *a_: dt.datetime(*a_, tzinfo=dt.timezone.utc)
+tb = g["tod_block"]                                   # by the market's OPEN (close - 15 min), US Eastern (EDT = UTC-4 in October)
+assert tb(utc(2026, 10, 20, 13, 15)) == "day"           # opens 13:00 UTC = 9:00 ET
+assert tb(utc(2026, 10, 20, 13, 0)) == "night"          # opens 12:45 UTC = 8:45 ET
+assert tb(utc(2026, 10, 20, 22, 15)) == "evening"       # opens 22:00 UTC = 18:00 ET
+assert tb(utc(2026, 10, 20, 22, 0)) == "day"            # opens 21:45 UTC = 17:45 ET
+assert tb(utc(2026, 10, 21, 4, 15)) == "night"          # opens 04:00 UTC = 0:00 ET
+assert tb(utc(2026, 10, 21, 4, 0)) == "evening"         # opens 03:45 UTC = 23:45 ET
+assert tb(utc(2026, 11, 3, 14, 15)) == "day"            # after the clocks change (EST = UTC-5): opens 9:00 ET
+assert tb(None) is None
 print("DRY RUN CHECKS PASSED")
 
 # ---------------- 2) LIVE path against a fake Kalshi at the production address ----------------
@@ -332,6 +344,7 @@ assert f"COMMODITY   5 markets,   5 won (100%), avg buy 85.0c, net {usd(gold)}" 
 assert re.search(r"BTC\s+5 markets,\s+4 won \( 80%\), net\s+\+\$\d+\.\d\d · streak W3\s+· last 5: WLWWW   ★ switched on", h), h
 assert re.search(r"ETH\s+5 markets,\s+0 won \(  0%\).* streak L5\s+· last 5: LLLLL\n", h)          # bought at 57c on the end-of-minute quote
 assert "bought 81-95c:   5 markets,   5 won (100%)" in h
+assert h.count("time of day (ET):") == 2, h                        # one line per class
 assert "no buy (no side at 56-95c with a spread of 5c or less in the first minute): 10 markets · no price history: 5" in h
 assert "could not read the prices in Kalshi's candle" in h and h.count("could not read the prices") == 1
 assert all(c[1]["start_ts"] + 900 in CL for c in calls7 if c[0].endswith("/candlesticks"))
