@@ -14,9 +14,9 @@
 #   For now DRY_RUN must stay True: the switches mark what would be live (★ON) and the daily loss stop counts
 #   only the switched-on strategies.
 #
-# LOG: every 15 minutes, one section per strategy x class (markets, fills, contracts, win rate, net, c/contract)
-#   and per market: markets traded, win rate (markets that made money), net, current streak (W3 = 3 winning
-#   markets in a row), last 10 results.
+# LOG: every 15 minutes, one line each for Favorite Crypto, Favorite Commodities, Lean Crypto, Lean Commodities:
+#   markets, fills, contracts, % won, net, c per contract, net if maker fees applied, current streak (W3 = 3 markets
+#   in a row that made money) and the last 10 markets.
 #
 # ORDER PATH (dry run): every order decision goes through the REAL order path: the exact Kalshi V2 request is
 #   built and signed, rate-limited (Kalshi Basic tier: 10 actions/s), checked against the safety limits and
@@ -93,6 +93,8 @@ STRATEGIES = {
     "lean": {"name": "leader",    "max_imbalance": None,
              "crypto": (75, 90, 900, 600), "commodity": (75, 84, 900, 30)},
 }
+TITLES = {("fav", "crypto"): "Favorite Crypto", ("fav", "commodity"): "Favorite Commodities",
+          ("lean", "crypto"): "Lean Crypto", ("lean", "commodity"): "Lean Commodities"}
 SWITCH_NAMES = {("fav", "crypto"): "FAV_CRYPTO", ("fav", "commodity"): "FAV_COMMODITIES",
                 ("lean", "crypto"): "LEAN_CRYPTO", ("lean", "commodity"): "LEAN_COMMODITIES"}
 CONTRACTS           = _sw.get("CONTRACTS", 10)     # per order
@@ -975,9 +977,8 @@ def main():
     markets, rest_px, state = {}, {}, {}
     settle_due, settled = {}, set()
     KEYS = [(s, c) for s in STRATEGIES for c in ("crypto", "commodity")]
-    run = {key: {"net": 0, "fee": 0, "fills": 0, "ct": 0.0, "won_ct": 0.0, "markets": 0} for key in KEYS}
+    run = {key: {"net": 0, "fee": 0, "fills": 0, "ct": 0.0, "won_ct": 0.0, "markets": 0, "res": []} for key in KEYS}
     day = {"date": now().date(), "net": 0, "low": 0, "all": 0}      # net: switched-on strategies only
-    per_mkt = {(s, a): {"markets": 0, "won": 0, "net": 0, "ct": 0.0, "res": []} for s in STRATEGIES for a in ALL_MARKETS}
     blocked = collections.Counter()
     flags = {"kill": False, "halted": False, "would_halt": None}
 
@@ -1203,9 +1204,7 @@ def main():
                 day["net"] += tot; day["low"] = min(day["low"], day["net"])
             if fs:
                 r["markets"] += 1
-                pm = per_mkt[(s, a)]
-                pm["markets"] += 1; pm["won"] += int(tot > 0); pm["net"] += tot; pm["ct"] += sum(f["n"] for f in fs)
-                pm["res"].append("W" if tot > 0 else "L")
+                r["res"].append("W" if tot > 0 else "L")          # a market that made money counts as a win
             sides = {}
             for sd in ("yes", "no"):
                 xs = [f for f in fs if f["side"] == sd]
@@ -1221,7 +1220,7 @@ def main():
             if fs:
                 parts = [f"{sides[sd][0]:g} {sd.upper()} @ {sides[sd][1]}c" for sd in ("yes", "no") if sides[sd][0]]
                 say(f"SETTLED [{s}{' ★ON' if on else ''}] {a} ({c}) {t[-7:]} result {result.upper()}: {len(fs)} fills, "
-                    f"{', '.join(parts)}  net {_usd(tot)}  | {a} {s} streak {streak(per_mkt[(s, a)]['res'])}"
+                    f"{', '.join(parts)}  net {_usd(tot)}  | {TITLES[(s, c)]} streak {streak(r['res'])}"
                     f"  | {s} {c} run {_usd(r['net'])} ({r['ct']:,.0f} contracts)")
         if GATE and day["net"] < -DAILY_LOSS_LIMIT_USD * 100:
             if MODE == "dry_run":                      # dry run: report it, keep trading so the data is not cut
@@ -1240,24 +1239,17 @@ def main():
         nb = sum(1 for t in markets if book and book.books.get(t) is not None) if book else 0
         say(f"[status] {MODE} · resting orders {resting} · order book known for {nb} markets"
             + ("" if fm is None else f" · Drive free {fm:,.0f} MB"))
-        for s, rr in STRATEGIES.items():
+        for s in STRATEGIES:
             for c in ("crypto", "commodity"):
                 r = run[(s, c)]
                 per = r["net"] / r["ct"] if r["ct"] else 0
                 won = 100 * r["won_ct"] / r["ct"] if r["ct"] else 0
                 alt = (r["net"] + r["fee"]) if MAKER_FEE_ON else (r["net"] - r["fee"])
-                names = [a for a in ALL_MARKETS if cls(a) == c]
-                on_now = [a for a in names if is_on(s, c, a)]
-                mark = "★ON" if on_now else "off"
-                print(f"  ⚪ DRY RUN {mark:3}  {s.upper():4} {rr['name']:9} {c.upper():9} {band_text(s, c):24} "
-                      f"{r['markets']:3} markets, {r['fills']:4} fills, {r['ct']:7,.0f} contracts, {won:5.1f}% won, "
-                      f"net {_usd(r['net']):>9} ({per:+.2f}c/contract) · {'without' if MAKER_FEE_ON else 'if'} maker fees {_usd(alt)}")
-                for a in names:
-                    pm = per_mkt[(s, a)]
-                    if not pm["markets"]: continue
-                    print(f"              {a:9} {pm['markets']:3} markets, {pm['won']:3} won ({100 * pm['won'] / pm['markets']:3.0f}%), "
-                          f"{pm['ct']:6,.0f} contracts, net {_usd(pm['net']):>9} · streak {streak(pm['res']):4} · "
-                          f"last 10: {''.join(pm['res'][-10:])}" + ("" if a in on_now or not on_now else "  (skipped: never live)"))
+                mark = "★ON" if any(is_on(s, c, a) for a in ALL_MARKETS if cls(a) == c) else "off"
+                print(f"  {mark:3}  {TITLES[(s, c)]:21} {band_text(s, c):24} {r['markets']:4} markets, {r['fills']:5} fills, "
+                      f"{r['ct']:7,.0f} contracts, {won:5.1f}% won, net {_usd(r['net']):>9} ({per:+.2f}c/contract) · "
+                      f"{'without' if MAKER_FEE_ON else 'if'} maker fees {_usd(alt)} · streak {streak(r['res']):4} · "
+                      f"last 10 markets: {''.join(r['res'][-10:]) or '-'}")
         for c in ("crypto", "commodity"):
             net = sum(run[(s, c)]["net"] for s in STRATEGIES); ct = sum(run[(s, c)]["ct"] for s in STRATEGIES)
             print(f"           ALL {c:9}: net {_usd(net)} over {ct:,.0f} contracts")

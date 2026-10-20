@@ -247,14 +247,17 @@ on = {(f["asset"], f["strategy"]): f["switched_on"] for f in fills4}
 assert on == {("BTC", "lean"): "1", ("SOL", "lean"): "0", ("SILVER", "lean"): "0", ("GOLD", "fav"): "1"}, on
 assert "strategies and switches" in txt4 and "never live: SOL" in txt4
 assert "lean leader     crypto 75-90c first 5 min       ★ON    commodity 75-84c whole market      off" in txt4
-assert "SETTLED [lean ★ON] BTC (crypto)" in txt4 and "SETTLED [lean] SOL (crypto)" in txt4 and "BTC lean streak W1" in txt4
+assert "SETTLED [lean ★ON] BTC (crypto)" in txt4 and "SETTLED [lean] SOL (crypto)" in txt4 and "Lean Crypto streak W1" in txt4
+assert "Lean Crypto streak W2" in txt4 and "Lean Commodities streak L1" in txt4
 last4 = txt4[txt4.rindex("[status]"):]
 import re
-assert re.search(r"⚪ DRY RUN ★ON  LEAN leader    CRYPTO    75-90c first 5 min\s+2 markets,\s+2 fills,\s+20 contracts, 100\.0% won, net\s+\+\$4\.00", last4), last4
-assert re.search(r"⚪ DRY RUN off  LEAN leader    COMMODITY 75-84c whole market\s+1 markets,\s+1 fills,\s+10 contracts,\s+0\.0% won, net\s+-\$8\.00", last4), last4
-assert re.search(r"BTC\s+1 markets,\s+1 won \(100%\),\s+10 contracts, net\s+\+\$2\.00 · streak W1\s+· last 10: W\n", last4), last4
-assert re.search(r"SOL\s+1 markets,\s+1 won \(100%\),\s+10 contracts, net\s+\+\$2\.00 · streak W1\s+· last 10: W  \(skipped: never live\)", last4), last4
-assert re.search(r"SILVER\s+1 markets,\s+0 won \(  0%\),\s+10 contracts, net\s+-\$8\.00 · streak L1\s+· last 10: L", last4), last4
+lines4 = [l for l in last4.split("\n") if re.match(r"  (★ON|off)  ", l)]
+assert [l[7:28].strip() for l in lines4] == ["Favorite Crypto", "Favorite Commodities", "Lean Crypto", "Lean Commodities"], lines4
+assert re.search(r"  ★ON  Lean Crypto\s+75-90c first 5 min\s+2 markets,\s+2 fills,\s+20 contracts, 100\.0% won, net\s+\+\$4\.00 "
+                 r"\(\+20\.00c/contract\) · if maker fees \+\$3\.94 · streak W2\s+· last 10 markets: WW$", lines4[2]), lines4[2]
+assert re.search(r"  off  Lean Commodities\s+75-84c whole market\s+1 markets,\s+1 fills,\s+10 contracts,\s+0\.0% won, net\s+-\$8\.00 .* streak L1\s+· last 10 markets: L$", lines4[3]), lines4[3]
+assert re.search(r"  ★ON  Favorite Crypto\s+85-98c whole market\s+0 markets, .* streak -\s+· last 10 markets: -$", lines4[0]), lines4[0]
+assert "BTC " not in last4 and "SILVER " not in last4 and "skipped" not in last4             # no per-asset rows
 fav_g = 10 * (100 - 86)
 on_net = 200 + fav_g                               # lean BTC + fav GOLD (switched on)
 all_net = 200 + 200 - 800 + fav_g                  # + SOL lean (skipped) and SILVER lean (switched off)

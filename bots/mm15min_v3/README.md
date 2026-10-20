@@ -46,15 +46,14 @@ strategy is timed on its own limit, as if it were live alone, so the dry-run str
 switched-on ones. In V2, `mm`'s ~21,000 actions shared one limit with `fav` and made orders wait up to 8 s.
 
 ## Log
-Every 15 minutes there is one line per strategy and class: markets, fills, contracts, % won, net, c per contract,
-and the net if maker fees applied. Under it is one row per market:
-- markets traded and how many made money;
-- contracts and net;
-- the current streak (`W3` = 3 winning markets in a row);
-- the last 10 results.
+Every 15 minutes there is one line each for Favorite Crypto, Favorite Commodities, Lean Crypto and Lean Commodities:
+- `★ON` or `off`, and the price band and window;
+- markets, fills, contracts and % won;
+- net, cents per contract, and the net if maker fees applied;
+- the current streak (`W3` = 3 markets in a row that made money) and the last 10 markets.
 
-Fills and SETTLED lines carry the strategy and `★ON` when it is switched on. The last line shows today's net for
-the switched-on strategies (with its lowest point) and for all strategies.
+There are no per-market rows. Fills and SETTLED lines carry the strategy and `★ON` when it is switched on. The last
+line shows today's net for the switched-on strategies (with its lowest point) and for all strategies.
 
 ## Drive files
 - `mm15min_v3_fills.csv`, `mm15min_v3_markets.csv` (both with a `switched_on` column).
@@ -65,5 +64,5 @@ the switched-on strategies (with its lowest point) and for all strategies.
 `test_mm15min_v3.py` covers:
 - V2's dry run, demo and mode-guard tests;
 - `lean`: it only bids crypto in the first 5 minutes and commodities at 75-84c;
-- the switches, the `switched_on` column, `SKIP_MARKETS`, and the per-market status rows and streaks;
+- the switches, the `switched_on` column, `SKIP_MARKETS`, and the four status lines with streaks;
 - the switch typo checks.
