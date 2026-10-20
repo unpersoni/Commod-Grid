@@ -557,6 +557,24 @@ result split into halves. 13 conditions x 3 levels x 2 classes: about 1 in 4 cel
   one pattern seen twice; crypto nights flip (weakest Oct 1-10, best here). Commodity time of day flips
   (Oct 1-10 evening worst, here daytime worst): not reliable.
 
+## V39: tag the opening favourite, wait, buy only if it rose? (user's idea, Oct 21)
+analysis/v39_delay.py: V39's tag (first moment in the first 60 s with a side's ask at 56-95c, spread <= 5c; median
+31 s in) on V37 + V38 ticks (Oct 9-16; 1,625 crypto and 1,153 commodity markets), then the same side 30/60/90/120 s
+into the market. c per contract after the fee (halves):
+| | Crypto | Commodities |
+|---|---|---|
+| buy at the tag (V39 now) | -1.11 (-2.90 / +1.34), won 61.5% at 60.9c | -4.35 (-3.71 / -4.77), 57.4% at 60.0c |
+| wait to 60 s, always buy | -0.79 (-2.57 / +1.65) | -3.87 (-2.83 / -4.54) |
+| wait to 90 s, always buy | -0.42 (-1.81 / +1.48) | -3.60 (-2.63 / -4.21) |
+| wait to 60 s, buy only if it rose 3c+ | -2.46 (37% of markets), won 68.0% at 69.0c | -6.29 (30%), 63.2% at 67.9c |
+| wait to 90 s, only if it rose 3c+ | -1.10 (42%), won 71.1% at 70.7c | -6.36 (37%), 64.7% at 69.6c |
+| wait to 90 s, only if it fell 3c+ | +0.81 (40%), won 51.9% at 49.3c | -4.00 (41%), 47.5% at 49.7c |
+- The first move does carry information: favourites that rose 3c+ by 90 s won 71% (crypto) vs 52% for those that
+  fell. But the price rises with it (61c -> 71c), so buying after the rise is worse than buying at the tag. The
+  "same markets bought at the tag" rows (+8.5c crypto, +3.2c commodities at 90 s) need hindsight.
+- A plain delay of 60-90 s is slightly better than buying at the tag in both classes and both halves (about +0.7c:
+  opening prices are a little rich), but V39 stays negative in this period.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
