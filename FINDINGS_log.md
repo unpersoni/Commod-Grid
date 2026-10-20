@@ -466,6 +466,25 @@ results are known. Each coin is up ~49-50% of the time.
 Meaning for the crypto favourite strategies: a round's 5 buys are mostly one bet, not five. A bad round tends to
 lose on all 5 together (V38b at 10 contracts: about -$35), which is what the round-based daily stop sees.
 
+## V38b crypto: buy only in the 5 coins' majority direction? (user's idea, Oct 20)
+analysis/v38b_majority.py: V38b's opening buy replayed on V37 + V38 ticks (Oct 9-16, 343 windows with all 5
+coins, 1,588 buys); each coin "leans" up/down by its YES mid at the open. c per contract after the taker fee:
+| V38b crypto buys | Trades | Won | Avg buy | Net |
+|---|---|---|---|---|
+| all (now) | 1588 | 61.6% | 60.9c | -1.04 |
+| with the majority (2+ of the other 4 agree) | 1409 | 62.0% | 61.3c | -1.04 |
+| against the majority (0-1 agree), skipped | 179 | 58.7% | 57.9c | -1.02 |
+| against the majority, flipped to the majority side | 179 | 41.3% | 43.2c | -3.68 |
+| window split 5-0 at the open | 901 | 65.0% | 62.5c | +0.86 |
+| window split 4-1 | 316 | 61.4% | 59.7c | -0.06 |
+| window split 3-2 | 371 | 53.4% | 58.1c | -6.48 |
+- The majority rule does not help: the lone coins against the majority do about as well as the rest, and
+  flipping them to the majority side loses more.
+- The 3-2 split is the weak spot (favourites near coin flips), but day by day it is worse than the other
+  windows on 5 of 8 days and Oct 15 alone is ~70% of its loss: a lead, not proven. 5-0 beat the rest on 5 of 8 days.
+- In this older period V38b crypto as a whole was about -1c per contract; the user's recent runs (Oct 19-20) are
+  better, so period matters.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
