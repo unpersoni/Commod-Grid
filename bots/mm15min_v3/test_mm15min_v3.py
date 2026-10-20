@@ -129,8 +129,10 @@ assert any(json.loads(r["request"])["price"] == "0.8800" and json.loads(r["reque
 assert any(r["action"] == "cancel (kill switch)" for r in cancels) and "KILL SWITCH" in txt
 assert "blocked by safety limits: max open orders" in txt or "max open orders" in txt
 assert float(max(float(r["rate_wait_ms"]) for r in rows)) > 50, "rate limit never waited"
-ts = sorted(dt.datetime.fromisoformat(r["ts_iso"]).timestamp() for r in rows)
-assert all(ts[i + 4] - ts[i] >= 0.95 for i in range(len(ts) - 4)), "more than 4 actions within one second"
+for grp in ("fav", "mm"):                 # fav is switched on (Kalshi's limit); mm is off (its own limit, as if live alone)
+    ts = sorted(dt.datetime.fromisoformat(r["ts_iso"]).timestamp() for r in rows if r["strategy"] == grp)
+    assert all(ts[i + 4] - ts[i] >= 0.95 for i in range(len(ts) - 4)), f"more than 4 {grp} actions within one second"
+assert "switched-on strategies (Kalshi's limit, 4/s): busiest second" in txt and "switched-off strategies (each on its own limit): waited" in txt
 for r in rows: assert r["build_ms"] and float(r["build_ms"]) < 200
 fills = list(csv.DictReader(open(f"{out}/mm15min_v3_fills.csv")))
 g_fav = [f for f in fills if f["asset"] == "GOLD" and f["strategy"] == "fav"]

@@ -41,6 +41,11 @@ starts, with a message saying what's wrong. That covers:
 - an unknown market name;
 - `DRY_RUN = False`.
 
+## Order rate
+The switched-on strategies share Kalshi's 10 order actions per second, as they would live. Each switched-off
+strategy is timed on its own limit, as if it were live alone. The busy `mm` strategy (about 21,000 actions in
+V2's first run) can't delay `fav` in the dry run. In V2 one shared limit made orders wait up to 8 s.
+
 ## Log
 Every 15 minutes there is one line per strategy and class: markets, fills, contracts, % won, net, c per contract,
 and the net if maker fees applied. Under it is one row per market:

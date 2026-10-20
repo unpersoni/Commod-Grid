@@ -26,6 +26,8 @@
 #
 # SPEED (lessons from Commod15min V21-V25): decisions run on every price/trade event (no polling); orders
 #   go out on 16 background threads; one kept-alive HTTPS session; no balance lookups before an order;
+#   the switched-on strategies share Kalshi's 10 actions/s (as they would live); each switched-off strategy is
+#   timed on its own limit, as if it were live alone, so the dry-run strategies never slow the switched-on ones;
 #   timing logged per order (decision -> request ready, build + sign, Kalshi round trip).
 # SAFETY: post-only · every order expires 25 s before the close on Kalshi's side · max 60 resting orders ·
 #   max 220 contracts per market · daily loss stop for the switched-on strategies (-$20; dry run only reports it) ·
@@ -639,7 +641,9 @@ class OrderGateway:
         self.mode, self.k, self.sess, self.say = mode, k, sess, say
         self.send = mode in ("demo", "live")
         self.pool = ThreadPoolExecutor(max_workers=ORDER_WORKERS)
-        self.bucket = RateLimiter(MAX_WRITES_PER_SEC)
+        self.bucket = RateLimiter(MAX_WRITES_PER_SEC)        # switched-on strategies share Kalshi's real limit
+        self.bucket_off = {}                                  # each switched-off strategy: its own limit, as if live alone
+        self.wait_on = collections.deque(maxlen=5000)
         self.lock = threading.Lock()
         self.log = HourlyCSV(DATA_DIR, "orders", ORDER_COLS) if LOG_ORDERS else None
         self.group_id = None
@@ -689,10 +693,22 @@ class OrderGateway:
         except requests.RequestException as e:
             return 0, {"error": str(e)}, (time.perf_counter() - t0) * 1000
 
-    def _account(self, t_dec):
+    def _take(self, o):
+        """Wait for the rate limit of this order's group; returns the seconds waited."""
+        on = getattr(o, "on", True)
+        if on: b = self.bucket
+        else:
+            with self.lock: b = self.bucket_off.setdefault(o.strat, RateLimiter(MAX_WRITES_PER_SEC))
+        wait = b.take()
+        if wait > 0.001: self.n["throttled_on" if on else "throttled_off"] += 1
+        self.wait_ms.append(wait * 1000)
+        if on: self.wait_on.append(wait * 1000)
+        return wait
+
+    def _account(self, t_dec, on=True):
         sec = int(time.time())
         with self.lock:
-            self.per_sec[sec] += 1
+            if on: self.per_sec[sec] += 1                   # the live budget: switched-on strategies only
             if len(self.per_sec) > 4000:
                 for s0 in sorted(self.per_sec)[:2000]: del self.per_sec[s0]
             self.decide_ms.append((time.perf_counter() - t_dec) * 1000)
@@ -703,16 +719,14 @@ class OrderGateway:
 
     def _create(self, ticker, o, close_dt, on_done):
         try:
-            wait = self.bucket.take()
-            if wait > 0.001: self.n["throttled"] += 1
-            self.wait_ms.append(wait * 1000)
+            wait = self._take(o)
             t0 = time.perf_counter()
             o.coid = str(uuid.uuid4())
             expire = (close_dt - dt.timedelta(seconds=EXPIRE_BEFORE_CLOSE_SEC)) if (self.use_expiry and close_dt) else None
             body = order_body(ticker, o.side, o.px, o.size, o.coid, expire, self.group_id)
             _hdrs(self.k, "POST", ORDER_CREATE_PATH)              # signing cost is part of the timing in every mode
             self.build_ms.append((time.perf_counter() - t0) * 1000)
-            self._account(o.t_decide)
+            self._account(o.t_decide, getattr(o, "on", True))
             if self.send:
                 code, js, rtt = self._timed_send("POST", ORDER_CREATE_PATH, body)
                 if code == 400 and "expir" in json.dumps(js).lower() and expire is not None:
@@ -748,14 +762,12 @@ class OrderGateway:
 
     def _cancel(self, ticker, o, reason):
         try:
-            wait = self.bucket.take()
-            if wait > 0.001: self.n["throttled"] += 1
-            self.wait_ms.append(wait * 1000)
+            wait = self._take(o)
             t0 = time.perf_counter()
             path = ORDER_CANCEL_PATH.format(order_id=o.oid)
             _hdrs(self.k, "DELETE", path)
             self.build_ms.append((time.perf_counter() - t0) * 1000)
-            self._account(o.t_decide)
+            self._account(o.t_decide, getattr(o, "on", True))
             if self.send:
                 code, js, rtt = self._timed_send("DELETE", path)
                 self.rtt_ms.append(rtt)
@@ -826,8 +838,9 @@ class OrderGateway:
         sent = "sent" if self.send else "built, not sent"
         lines = [f"order actions {sent}: {n['creates']} creates, {n['cancels']} cancels"
                  + (f", {n['rejects']} rejected, {n['errors']} errors" if self.send or n['errors'] else "")
-                 + f" · busiest second {peak} actions (limit {MAX_WRITES_PER_SEC}/s) · waited for the limit {n['throttled']} times"
-                 + (f" (longest {max(self.wait_ms):.0f} ms)" if self.wait_ms and max(self.wait_ms) > 1 else ""),
+                 + f" · switched-on strategies (Kalshi's limit, {MAX_WRITES_PER_SEC}/s): busiest second {peak} actions, "
+                 f"waited {n['throttled_on']} times" + (f" (longest {max(self.wait_on):.0f} ms)" if self.wait_on and max(self.wait_on) > 1 else "")
+                 + f" · switched-off strategies (each on its own limit): waited {n['throttled_off']} times",
                  f"speed (median / 95%): decision -> request ready {f(self.decide_ms)} · build + sign {f(self.build_ms)} · "
                  f"Kalshi round trip {f(self.probe_ms)}" + (f" · order round trip {f(self.rtt_ms)}" if self.send else "")]
         return lines
@@ -1111,6 +1124,7 @@ def main():
                     if why:
                         blocked[why] += 1; continue
                     o = Order(s, side, b, q, s2c, ya - yb, spot_of(t), active=not GATE)
+                    o.on = is_on(s, c, asset(t))                # switched on: shares the live rate limit
                     st.orders[key] = o
                     st.placed[s] += 1
                     if GATE: gw.create(t, o, markets[t]["close"], on_created)
