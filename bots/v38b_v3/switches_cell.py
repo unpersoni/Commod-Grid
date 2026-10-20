@@ -5,14 +5,15 @@
 DRY_RUN = True              # True  = practice: nothing is sent to Kalshi (fills simulated)
                             # False = LIVE, REAL MONEY (a 10-second countdown lets you stop it)
 
-TRADE_CRYPTO      = True    # BTC, ETH, SOL, XRP, DOGE                        False = no crypto markets
-TRADE_COMMODITIES = False   # GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM  False = no commodity markets
+TRADE_CRYPTO      = True    # BTC, ETH, SOL, XRP, DOGE                        False = not live (dry run only)
+TRADE_COMMODITIES = False   # GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM  False = not live (dry run only)
 
-SKIP_MARKETS = []           # turn off single markets by name, e.g. ["WTI"] or ["DOGE", "PALLADIUM"]
+SKIP_MARKETS = []           # take single markets off live trading by name, e.g. ["WTI"] or ["DOGE", "PALLADIUM"]
                             # names: BTC ETH SOL XRP DOGE GOLD SILVER WTI COPPER PLATINUM PALLADIUM
+                            # Markets that are off are still followed in DRY RUN, so the log shows every market.
 
 CONTRACTS = 10              # contracts per buy
-DAILY_LOSS_LIMIT_USD = 50   # once a 15-minute round has settled, if today's (UTC) net is below -$50:
-                            # no new buys until midnight UTC (no limit on gains)
+DAILY_LOSS_LIMIT_USD = 50   # once a 15-minute round has settled, if today's (UTC) live net is below -$50:
+                            # no new live buys until midnight UTC (no limit on gains)
 
 main()

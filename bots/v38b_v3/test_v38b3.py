@@ -76,7 +76,7 @@ def script1():
     while feed.on_tick is None: time.sleep(0.05)
     time.sleep(0.8)
     tick(feed, M["B"], 58, 59)          # BTC YES ask 59 -> filled
-    tick(feed, M["S"], 60, 61)          # SOL is skipped -> nothing
+    tick(feed, M["S"], 60, 61)          # SOL is switched off -> still followed in dry run
     tick(feed, M["E"], 20, 22)          # ETH NO ask 80 -> waits for the 2/s limit...
     tick(feed, M["G"], 84, 85)          # GOLD
     feed.p[M["E"]] = (15, 16)           # ... ETH NO ask jumps to 85 > 82 -> killed, retried at 85 -> filled
@@ -84,28 +84,36 @@ def script1():
     tick(feed, M["X"], 52, 60)          # spread 8c -> no buy
     open(f"{out}/STOP_V38B.txt", "w").write("stop")
     time.sleep(6.0)
-    tick(feed, M["X"], 70, 71)          # kill switch on -> no buy
+    tick(feed, M["X"], 70, 71)          # kill switch only stops live buys: dry run keeps following
     time.sleep(1.0)
     clock["off"] = 900; time.sleep(3.5)
     _thread.interrupt_main()
 txt = run_bot(g, script1); print(txt[-3000:])
 fee = g["taker_fee_c"]; usd = g["_usd"]
 assert not sent, f"dry run SENT something: {sent[:1]}"
-assert "DRY RUN" in txt and "LIVE" not in txt.split("[status]")[0].replace("LIVE trading", "")
+assert "DRY RUN" in txt and "🟢 LIVE" not in txt and "\x1b[" not in txt
 assert "crypto: ON · commodities: ON · skipped: SOL" in txt
-assert "trading: BTC, ETH, XRP, DOGE, GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM" in txt
-assert "SOL buy" not in txt and "SOL (crypto)" not in txt
+assert "⚪ DRY RUN: all markets · switched on (would be live with DRY_RUN = False): BTC, ETH, XRP, DOGE, GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM" in txt
+assert "⚪ DRY RUN  BUY  10x YES @ 61c  SOL (crypto)" in txt
 assert "ETH buy 10 NO · ask seen 80c, limit 82c · killed (simulated: ask 85c > limit 82c)" in txt
 assert "ETH buy 10 NO · ask seen 85c, limit 87c · FILLED (simulated: not sent) @ 85c" in txt
 assert "BUY  10x YES @ 59c  BTC (crypto)" in txt and "BUY  10x YES @ 85c  GOLD (commodity)" in txt
-assert "XRP (crypto)" not in txt and "KILL SWITCH" in txt
+assert "BUY  10x YES @ 71c  XRP (crypto)" in txt and "KILL SWITCH" in txt
+assert "XRP buy 10 YES · ask seen 60c" not in txt                       # the 8c spread: no buy
 assert "[account] markets already held: 0" in txt
 b = 10 * (0 - 59) - fee(10, 59); e = 10 * (0 - 85) - fee(10, 85); gd = 10 * (100 - 85) - fee(10, 85)
+so = 10 * (100 - 61) - fee(10, 61); x = 10 * (100 - 71) - fee(10, 71)
 last = txt[txt.rindex("[status]"):]
-assert f"crypto   :   2 markets,   0 won (0%), avg buy 72.0c, net {usd(b + e)}" in last, last
-assert f"commodity:   1 markets,   1 won (100%), avg buy 85.0c, net {usd(gd)}" in last
-assert "quick orders built, not sent: 4 · filled 3, killed 1" in last, last
-assert f"today (UTC) net {usd(b + e + gd)}, lowest " in last
+assert f"  ⚪ DRY RUN  CRYPTO      4 markets,   2 won (50%), avg buy 69.0c, net {usd(b + e + so + x)}" in last, last
+assert f"  ⚪ DRY RUN  COMMODITY   1 markets,   1 won (100%), avg buy 85.0c, net {usd(gd)}" in last
+assert "🟢 LIVE" not in last
+assert re.search(r"BTC\s+1 markets,\s+0 won \(\s*0%\), net\s+-\$6\.07 · streak L1\s+· last 10: L\n", last), last
+assert re.search(r"SOL\s+1 markets,\s+1 won \(100%\), net\s+\+\$3\.73 · streak W1\s+· last 10: W\n", last), last
+assert re.search(r"DOGE\s+0 markets,\s+0 won \(  - \), net\s+\+\$0\.00 · streak -\s+· last 10: -\n", last), last
+assert "PALLADIUM" in last and "bought 56-65c:   2 markets,   1 won (50%)" in last
+assert "quick orders built, not sent: 6 · filled 5, killed 1" in last, last
+assert f"today (UTC) net of the switched-on markets {usd(b + e + gd + x)}, lowest " in last          # SOL is switched off
+assert f"all markets {usd(b + e + gd + x + so)}" in last
 assert "DAILY LOSS STOP" not in txt                         # -$13.84 is well above -$50
 assert sorted(os.listdir(out)) == ["STOP_V38B.txt"], os.listdir(out)              # no files written by the bot
 assert not any(p == "/portfolio/intra_exchange_instance_transfer" for p, _ in api)
@@ -114,11 +122,11 @@ print("DRY RUN CHECKS PASSED")
 
 # ---------------- 2) LIVE path against a fake Kalshi at the production address ----------------
 out2 = f"{SP}/run_v38b3_live"
-g2 = load(out2, DRY_RUN=False, KEY_ID="test-key-id", LIVE_COUNTDOWN_SEC=0, DAILY_LOSS_LIMIT_USD=5)
+g2 = load(out2, DRY_RUN=False, KEY_ID="test-key-id", LIVE_COUNTDOWN_SEC=0, DAILY_LOSS_LIMIT_USD=5, SKIP_MARKETS=["WTI"])
 M2 = {"B": "KXBTC15M-26OCT011215-15", "E": "KXETH15M-26OCT011215-15", "S": "KXSOL15M-26OCT011215-15",
       "X": "KXXRP15M-26OCT011215-15", "G": "KXGOLD15M-26OCT011215-15", "D": "KXDOGE15M-26OCT011215-15",
-      "V": "KXSILVER15M-26OCT011215-15", "B2": "KXBTC15M-26OCT011230-30"}
-res2 = {M2["B"]: "yes", M2["E"]: "yes", M2["S"]: "yes", M2["X"]: "yes", M2["G"]: "yes", M2["D"]: "no", M2["V"]: "yes", M2["B2"]: "yes"}
+      "V": "KXSILVER15M-26OCT011215-15", "B2": "KXBTC15M-26OCT011230-30", "W": "KXWTI15M-26OCT011215-15"}
+res2 = {M2["B"]: "yes", M2["E"]: "yes", M2["S"]: "yes", M2["X"]: "yes", M2["G"]: "yes", M2["D"]: "no", M2["V"]: "yes", M2["B2"]: "yes", M2["W"]: "no"}
 secs2 = {t: 885 for t in M2.values()}; secs2[M2["B2"]] = 1785
 posted, orders_on_kalshi, bal = [], {}, {"s0": 9000, "s2": 1000}
 def get2(path, params):
@@ -162,6 +170,7 @@ def script2():
     tick(feed2, M2["X"], 60, 61)          # timeout, not on Kalshi -> UNKNOWN, market skipped
     tick(feed2, M2["G"], 70, 71)          # rejected -> market skipped
     tick(feed2, M2["V"], 70, 71)          # already held on the account -> never bought
+    tick(feed2, M2["W"], 70, 71)          # WTI switched off -> dry run only, never sent
     tick(feed2, M2["D"], 62, 64)          # NO ask 38? no: YES ask 64 -> killed, then filled (YES 0.37? read as NO 63? -> 63/37 rule)
     time.sleep(4.0)
     tick(feed2, M2["X"], 60, 62)          # no retries in an UNKNOWN market
@@ -169,7 +178,7 @@ def script2():
     tick(feed2, M2["D"], 62, 64)          # filled already
     time.sleep(1.0)
     clock2["off"] = 900; time.sleep(4.0)  # round 1 settles: BTC/ETH(no side)/SOL/DOGE -> net below -$5 -> stop
-    tick(feed2, M2["B2"], 60, 61)         # round 2 opening: no buy after the stop
+    tick(feed2, M2["B2"], 60, 61)         # round 2 opening: no live buy after the stop (dry run only)
     time.sleep(1.0)
     _thread.interrupt_main()
 txt2 = run_bot(g2, script2); print(txt2[-4500:])
@@ -179,7 +188,14 @@ assert all(h["KALSHI-ACCESS-KEY"] == "test-key-id" and h["KALSHI-ACCESS-SIGNATUR
 assert "LIVE: REAL ORDERS WITH REAL MONEY" in txt2
 tk = [b["ticker"] for _, b, _ in orders]
 assert tk.count(M2["S"]) == 1 and tk.count(M2["X"]) == 1 and tk.count(M2["G"]) == 1, tk     # never re-sent
-assert tk.count(M2["D"]) == 2 and M2["V"] not in tk and M2["B2"] not in tk, tk
+assert tk.count(M2["D"]) == 2 and M2["V"] not in tk and M2["B2"] not in tk and M2["W"] not in tk, tk
+assert "\x1b[1;32m" in txt2                                              # live lines in green
+assert "🟢 LIVE    (real orders): BTC, ETH, SOL, XRP, DOGE, GOLD, SILVER, COPPER, PLATINUM, PALLADIUM" in txt2
+assert "⚪ DRY RUN (followed, nothing sent): WTI" in txt2
+assert "⚪ DRY RUN  BUY  10x YES @ 71c  WTI (commodity)" in txt2 and "⚪ DRY RUN [order] 1215-15 WTI buy 10 YES" in txt2
+assert "🟢 LIVE  BUY  10x YES @ 59c  BTC" in txt2 and "🟢 LIVE [order] 1215-15 BTC buy 10 YES" in txt2
+assert "⚪ DRY RUN  BUY  10x YES @ 61c  BTC (crypto) 1230-30" in txt2                  # after the stop: dry run
+assert "⚪ DRY RUN  SETTLED NO  WTI (commodity)" in txt2
 tr = [b for u, b, _ in posted if u.endswith("intra_exchange_instance_transfer")]
 assert tr == [{"source": "event_contract", "destination": "event_contract", "amount": 900000,
                "source_exchange_shard": 0, "destination_exchange_shard": 2}], tr
@@ -194,11 +210,16 @@ assert "DOGE buy 10 YES · ask seen 64c, limit 66c · killed (not enough at or b
 assert "BUY  10x YES @ 63c  DOGE" in txt2                       # 0.37 read as 37 or 63: only 63 fits a YES buy near 64
 fee = g2["taker_fee_c"]; usd = g2["_usd"]
 net = (10 * 41 - fee(10, 59)) + (-800 - fee(10, 80)) + (10 * 39 - fee(10, 61)) + (-630 - fee(10, 63))
-assert f"today (UTC) net {usd(net)}" in txt2 and net < -500
+wti = -710 - fee(10, 71)
+last2 = txt2[txt2.rindex("[status]"):]
+assert f"today (UTC) live net {usd(net)}" in last2 and net < -500
+assert f"today (UTC) dry-run net {usd(wti)} (not real money)" in last2                 # WTI is not in the live stop
 stop_at = txt2.index("!!! DAILY LOSS STOP (round closing")
-assert stop_at > txt2.rindex("SETTLED ")                          # checked once the whole round has settled
-assert "DOGE" in txt2[:stop_at] and txt2[:stop_at].count("SETTLED ") == 4
-assert "DAILY LOSS STOP HIT, no new buys today" in txt2[txt2.rindex("[status]"):]
+assert stop_at > txt2.rindex("🟢 LIVE  SETTLED ")                 # checked once the whole round has settled
+assert "DOGE" in txt2[:stop_at] and txt2[:stop_at].count("🟢 LIVE  SETTLED ") == 4
+assert "DAILY LOSS STOP HIT, no new live buys today" in last2
+assert "🟢 LIVE  CRYPTO      4 markets,   2 won (50%)" in last2 and "⚪ DRY RUN  COMMODITY   1 markets,   0 won (0%)" in last2
+assert "⚪ DRY RUN  CRYPTO      0 markets" in last2              # after the stop the crypto markets are followed in dry run
 assert "unknown 1" in txt2 and "rejected 1" in txt2
 print("LIVE PATH CHECKS PASSED")
 
@@ -218,7 +239,7 @@ def script3():
     _thread.interrupt_main()
 txt3 = run_bot(g3, script3); print(txt3[-1200:])
 fee = g3["taker_fee_c"]
-assert "today -$6.0" in txt3 or "today -$5.9" in txt3            # the day dipped below -$5 inside the round ...
+assert "today switched-on -$6.0" in txt3                         # the day dipped below -$5 inside the round ...
 assert "DAILY LOSS STOP" not in txt3                              # ... but the round ended above it: no stop
 assert "lowest -$" in txt3
 print("ROUND STOP CHECKS PASSED")
@@ -228,7 +249,7 @@ for over, msg in (({"DRY_RUN": "False"}, "DRY_RUN must be True or False without 
                   ({"TRADE_CRYPTO": "no"}, "TRADE_CRYPTO must be True or False"),
                   ({"SKIP_MARKETS": ["GLD"]}, "SKIP_MARKETS has unknown names ['GLD']"),
                   ({"SKIP_MARKETS": "WTI"}, "SKIP_MARKETS must be a list"),
-                  ({"TRADE_CRYPTO": False, "TRADE_COMMODITIES": False}, "nothing to trade"),
+                  ({"DRY_RUN": False, "KEY_ID": "k", "TRADE_CRYPTO": False, "TRADE_COMMODITIES": False}, "every market is switched off"),
                   ({"DRY_RUN": False}, "live trading needs KEY_ID"),
                   ({"CONTRACTS": 0}, "CONTRACTS must be"), ({"DAILY_LOSS_LIMIT_USD": -5}, "DAILY_LOSS_LIMIT_USD must be")):
     g4 = load(f"{SP}/run_v38b3_guard", **over)
@@ -246,6 +267,8 @@ exec(compile(open(SRC).read(), "v38b3", "exec"), g5)
 assert g5["DRY_RUN"] is False and g5["SKIP_MARKETS"] == ["WTI"] and g5["TRADE_CRYPTO"] is True
 g6 = {"__name__": "x"}; exec(compile(open(SRC).read(), "v38b3", "exec"), g6)
 assert g6["DRY_RUN"] is True                                                      # no SWITCHES cell: dry run
+g6["COLORS"] = False
+assert g6["paint"]("x", True) == "x" and g6["streak"](list("WLLW")) == "W1" and g6["streak"](list("WLLL")) == "L3"
 print("SWITCH CHECKS PASSED")
 
 # ---------------- 5) fill parsing ----------------

@@ -26,14 +26,32 @@ Typos stop the bot before it starts, with a message. Examples:
 - Every market switched off.
 - Live without a key.
 
+### Live and dry-run markets in one run
+A market that is switched off is still followed in **dry run**: the same opening-buy rule, simulated fills, nothing sent.
+So the log always shows all 11 markets. With `DRY_RUN = False`, the switched-on markets trade live.
+Every 15 minutes the status shows crypto and commodities, each split into two sections:
+- `🟢 LIVE`: real orders, printed in bold green.
+- `⚪ DRY RUN`: followed, nothing sent, printed in the normal colour.
+
+Each section shows the totals and the price bands. For each market it shows:
+- the win rate and net;
+- the current streak (`W3` = 3 wins in a row, `L2` = 2 losses);
+- the last 10 results (e.g. `WWLWWWWLWW`).
+
+BUY and SETTLED lines carry the same tag. The daily loss stop counts **live** trades only. When it hits, or the
+kill switch is on, the live markets carry on in dry run, so their results keep showing. `COLORS = False` in the code
+cell turns the green off, if Colab shows codes like `[1;32m`. Dry-run fills assume all 10 contracts are there at the
+ask. The first live run showed thin books at the open: an ETH ask seen at 66c was filled at 74c. Live fills can be a
+few cents worse than the dry-run numbers.
+
 ### Turning off individual markets
 Put the names in `SKIP_MARKETS`. Capitals don't matter. The names are `BTC ETH SOL XRP DOGE GOLD SILVER WTI COPPER PLATINUM PALLADIUM`.
 
 | You want | Set |
 |---|---|
-| everything | `TRADE_CRYPTO = True`, `TRADE_COMMODITIES = True`, `SKIP_MARKETS = []` |
-| crypto only | `TRADE_COMMODITIES = False` |
-| commodities only | `TRADE_CRYPTO = False` |
+| everything live | `TRADE_CRYPTO = True`, `TRADE_COMMODITIES = True`, `SKIP_MARKETS = []` |
+| crypto live, commodities dry run | `TRADE_COMMODITIES = False` |
+| commodities live, crypto dry run | `TRADE_CRYPTO = False` |
 | crypto without DOGE | `TRADE_COMMODITIES = False`, `SKIP_MARKETS = ["DOGE"]` |
 | everything but WTI and PALLADIUM | `SKIP_MARKETS = ["WTI", "PALLADIUM"]` |
 | BTC and ETH only | `TRADE_COMMODITIES = False`, `SKIP_MARKETS = ["SOL", "XRP", "DOGE"]` |

@@ -9,6 +9,10 @@
 #   TRADE_CRYPTO = True       BTC, ETH, SOL, XRP, DOGE        (False = don't trade any crypto market)
 #   TRADE_COMMODITIES = True  GOLD, SILVER, WTI, COPPER, PLATINUM, PALLADIUM   (False = none of them)
 #   SKIP_MARKETS = []         turn off single markets by name, e.g. SKIP_MARKETS = ["WTI", "DOGE"]
+#   Markets switched off are still followed in DRY RUN (nothing sent), so every market's results stay visible.
+#
+# LOG: every 15 minutes, crypto and commodities each in a 🟢 LIVE section (green: real orders) and a ⚪ DRY RUN
+#   section: totals, price bands, and per market: win rate, net, current streak (W3 = 3 wins in a row), last 10 results.
 #
 # QUICK ORDERS: fill-or-kill with a real limit (ask seen + 2c): all 10 fill at or below it, or nothing fills and
 #   nothing is paid; a killed order is retried while still in the first 60 s (at most 10 tries per market).
@@ -56,6 +60,7 @@ MAX_SPREAD_C    = 5       # no buy when ask - bid is wider than this
 MAX_SLIPPAGE_C  = 2       # fill-or-kill limit = ask seen + 2c (never above 99c)
 MAX_TRIES_PER_MARKET = 10 # killed orders are retried while still in the window, at most this many tries
 LIVE_COUNTDOWN_SEC   = 10 # live: seconds to stop the cell before the bot starts
+COLORS = True             # live lines in green in the log (False if you see odd characters like [1;32m)
 KILL_FILE = '/content/drive/MyDrive/STOP_V38B.txt'      # create this file on Drive: no new buys
 
 PEM_PATH  = '/content/drive/MyDrive/intraday key.pem'
@@ -576,11 +581,25 @@ def band_name(px):
     return "?"
 
 class Trade:
-    """The opening buy in one market, held to settlement."""
-    def __init__(self, yes, px, n, s2c, close):
+    """The opening buy in one market, held to settlement. live: a real order; counts: part of the daily loss stop."""
+    def __init__(self, yes, px, n, s2c, close, live, counts):
         self.yes, self.px, self.n, self.s2c, self.close = yes, px, n, s2c, close
+        self.live, self.counts = live, counts
 
 def _usd(c): return f"{'+' if c >= 0 else '-'}${abs(c) / 100:,.2f}"
+
+LIVE_TAG, DRY_TAG = "🟢 LIVE", "⚪ DRY RUN"
+def tag(live): return LIVE_TAG if live else DRY_TAG
+def paint(text, live):
+    """Live lines in bold green, dry-run lines in the normal colour (COLORS = False: no colour codes)."""
+    return f"\x1b[1;32m{text}\x1b[0m" if (live and COLORS) else text
+
+def streak(res):
+    """Current run of wins or losses from a list of 'W'/'L', e.g. 'W3'."""
+    if not res: return "-"
+    n = 1
+    while n < len(res) and res[-n - 1] == res[-1]: n += 1
+    return f"{res[-1]}{n}"
 
 def check_switches():
     """Stop with a clear message on a switch that is mistyped (e.g. "False" in quotes, or a market name typo)."""
@@ -600,6 +619,7 @@ def check_switches():
         sys.exit("live trading needs KEY_ID (your Kalshi API key id) in the settings")
 
 def trading_markets():
+    """The markets switched ON (live when DRY_RUN = False). Every other market is still followed in dry run."""
     skip = {str(m).upper() for m in SKIP_MARKETS}
     return [a for a in ALL_MARKETS if a not in skip
             and (TRADE_CRYPTO if cls(a) == "crypto" else TRADE_COMMODITIES)]
@@ -609,25 +629,30 @@ def main():
     live = not DRY_RUN
     on = trading_markets()
     on_set = set(on)
+    off = [a for a in ALL_MARKETS if a not in on_set]
     if live:
-        print("!" * 100)
-        print(f"!!!  {BOT_NAME} — LIVE: REAL ORDERS WITH REAL MONEY  !!!")
-        print("!" * 100)
+        print(paint("!" * 100, True))
+        print(paint(f"!!!  {BOT_NAME} — LIVE: REAL ORDERS WITH REAL MONEY on the markets marked {LIVE_TAG}  !!!", True))
+        print(paint("!" * 100, True))
+        print(paint(f"{LIVE_TAG}    (real orders): {', '.join(on) if on else 'none'}", True))
+        print(f"{DRY_TAG} (followed, nothing sent): {', '.join(off) if off else 'none'}")
     else:
         print(f"{BOT_NAME} — DRY RUN (exact fill-or-kill orders built, signed and timed — NOTHING is sent; fills simulated)")
+        print(f"{DRY_TAG}: all markets · switched on (would be live with DRY_RUN = False): {', '.join(on) if on else 'none'}")
     print(f"crypto: {'ON' if TRADE_CRYPTO else 'OFF'} · commodities: {'ON' if TRADE_COMMODITIES else 'OFF'}"
           + (f" · skipped: {', '.join(str(m).upper() for m in SKIP_MARKETS)}" if SKIP_MARKETS else ""))
-    print(f"trading: {', '.join(on) if on else 'NOTHING (every market is switched off)'}")
     print(f"opening buy: {CONTRACTS} contracts of the side whose ask is {OPEN_MIN_C}-{OPEN_MAX_C}c in the first "
           f"{OPEN_WINDOW_SEC}s of the market · no buy if the spread is over {MAX_SPREAD_C}c · hold to settlement")
     print(f"quick orders: fill-or-kill, limit = ask seen + {MAX_SLIPPAGE_C}c · killed orders retried in the window "
           f"(at most {MAX_TRIES_PER_MARKET} tries per market) · {ORDER_WORKERS} sender threads · at most {MAX_WRITES_PER_SEC} actions/s")
-    print(f"daily loss stop: after each 15-minute round settles, no new buys if today's (UTC) net is below "
-          f"-${DAILY_LOSS_LIMIT_USD} (no limit on gains{'; dry run only reports it' if not live else ''}) · "
+    print(f"daily loss stop: after each 15-minute round settles, no new live buys if today's (UTC) live net is below "
+          f"-${DAILY_LOSS_LIMIT_USD} (no limit on gains{'; dry run only reports it, for the switched-on markets' if not live else ''}) · "
           f"kill switch: create {KILL_FILE}")
+    print("dry-run fills assume all contracts are there at the ask; live, the books are thin at the open, so live fills "
+          "can be a few cents worse")
     print("files: none — results are shown here only")
-    if not on:
-        sys.exit("nothing to trade: switch TRADE_CRYPTO or TRADE_COMMODITIES on, or shorten SKIP_MARKETS")
+    if live and not on:
+        sys.exit("DRY_RUN = False but every market is switched off: nothing would be live. Switch markets on, or set DRY_RUN = True")
     if live and LIVE_COUNTDOWN_SEC > 0:
         for i in range(int(LIVE_COUNTDOWN_SEC), 0, -1):
             print(f"LIVE trading starts in {i} s — stop the cell now to cancel", flush=True)
@@ -639,47 +664,57 @@ def main():
     markets, rest_px, trades, pending, done = {}, {}, {}, set(), set()
     tries = collections.Counter()
     settle_due, settled = {}, set()
-    open_by_close = collections.Counter()            # trades still waiting for their result, per close time
+    open_by_close = collections.Counter()            # stop-counting trades still waiting for their result, per close time
     def new_tally(): return {"markets": 0, "won": 0, "net": 0, "cost": 0, "n": 0}
-    run = {c: new_tally() for c in ("crypto", "commodity")}
-    by_band = {(c, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for lo, hi in PRICE_BANDS}
-    day = {"date": now().date(), "net": 0, "low": 0}
+    MODES = ("live", "dry")
+    run = {(c, md): new_tally() for c in ("crypto", "commodity") for md in MODES}
+    by_band = {(c, md, f"{lo}-{hi}c"): new_tally() for c in ("crypto", "commodity") for md in MODES for lo, hi in PRICE_BANDS}
+    per_mkt = {(a, md): dict(new_tally(), res=[]) for a in ALL_MARKETS for md in MODES}
+    day = {"date": now().date(), "net": 0, "low": 0, "live": 0, "dry": 0}
     flags = {"kill": False, "halted": False, "would_halt": None}
 
     def s2c_of(t):
         m = markets.get(t)
         return (m["close"] - now()).total_seconds() if m else None
 
-    def say(msg): print(f"[{now():%H:%M:%S}] {msg}")
+    def say(msg, lv=None): print(f"[{now():%H:%M:%S}] " + (msg if lv is None else paint(msg, lv)))
 
     def prices(t):
         return feed.get(t) or rest_px.get(t)
 
-    gw = QuickGateway(live, k, sess, say, prices)
+    gw_dry = QuickGateway(False, k, sess, lambda m: say((DRY_TAG + " " + m) if live else m, False), prices)
+    gw_live = QuickGateway(True, k, sess, lambda m: say(LIVE_TAG + " " + m, True), prices) if live else None
+    gw = gw_live or gw_dry                           # account checks and the latency probe
+    if live: gw_dry.shown = SHOW_REQUESTS            # the raw-request lines are for the live orders
 
-    def on_bought(t, yes, n, fill, ask_seen, stop_market):
+    def is_live(a):
+        """Real orders for this market now? Switched on, DRY_RUN = False, no kill switch, no daily stop."""
+        return live and a in on_set and not flags["kill"] and not flags["halted"]
+
+    def on_bought(t, yes, n, fill, ask_seen, stop_market, lv):
         """Called by the quick-order path when the buy has been answered (live) or simulated (dry run)."""
+        a = asset(t)
         with lock:
             pending.discard(t)
             if stop_market: done.add(t)
             if not n or t in trades: return
             m = markets.get(t)
             s2c = s2c_of(t)
-            trades[t] = Trade(yes, fill, n, s2c, m["close"] if m else None)
-            open_by_close[trades[t].close] += 1
-        say(f"BUY  {n}x {'YES' if yes else 'NO'} @ {fill}c  {asset(t)} ({cls(asset(t))}) {t[-7:]}  "
-            f"{'' if s2c is None else f'{s2c:.0f}s left'}  (ask seen {ask_seen}c) · hold to settlement")
+            counts = lv if live else a in on_set
+            trades[t] = Trade(yes, fill, n, s2c, m["close"] if m else None, lv, counts)
+            if counts: open_by_close[trades[t].close] += 1
+        say(f"{tag(lv)}  BUY  {n}x {'YES' if yes else 'NO'} @ {fill}c  {a} ({cls(a)}) {t[-7:]}  "
+            f"{'' if s2c is None else f'{s2c:.0f}s left'}  (ask seen {ask_seen}c) · hold to settlement", lv)
 
     def evaluate(t):
         a = asset(t)
-        if a not in on_set: return
         px = prices(t)
         s2c = s2c_of(t)
         if px is None or s2c is None or s2c <= DEADBAND_SEC: return       # unknown timing: do nothing
         yb, ya = px
         if not (0 <= yb < ya <= 100): return
         with lock:
-            if t in trades or t in pending or t in done or flags["kill"] or flags["halted"]: return
+            if t in trades or t in pending or t in done: return
             if not (900 - OPEN_WINDOW_SEC <= s2c <= 905) or ya - yb > MAX_SPREAD_C: return
             for yes, ask in ((True, ya), (False, 100 - yb)):
                 if OPEN_MIN_C <= ask <= OPEN_MAX_C:
@@ -689,7 +724,8 @@ def main():
                         return
                     tries[t] += 1
                     pending.add(t)                                   # one order in flight per market
-                    gw.buy(t, yes, ask, on_bought)
+                    lv = is_live(a)
+                    (gw_live if lv else gw_dry).buy(t, yes, ask, lambda *r, lv=lv: on_bought(*r, lv))
                     return
 
     def on_tick(t, yb, ya):
@@ -697,7 +733,7 @@ def main():
 
     def new_day_check():
         if now().date() != day["date"]:
-            day.update(date=now().date(), net=0, low=0)
+            day.update(date=now().date(), net=0, low=0, live=0, dry=0)
             if flags["halted"] or flags["would_halt"]:
                 say("[safety] new day (UTC): daily loss stop reset")
             flags.update(halted=False, would_halt=None)
@@ -709,30 +745,35 @@ def main():
         if not live:
             if flags["would_halt"] is None:
                 flags["would_halt"] = now()
-                say(f"[safety] DAILY LOSS STOP would stop new buys now{when}: today's net {_usd(day['net'])} is below "
-                    f"-${DAILY_LOSS_LIMIT_USD} — dry run keeps going")
+                say(f"[safety] DAILY LOSS STOP would stop new buys now{when}: today's net of the switched-on markets "
+                    f"{_usd(day['net'])} is below -${DAILY_LOSS_LIMIT_USD} — dry run keeps going")
         elif not flags["halted"]:
             flags["halted"] = True
-            say(f"!!! DAILY LOSS STOP{when}: today's net {_usd(day['net'])} is below -${DAILY_LOSS_LIMIT_USD} — "
-                f"no new buys until midnight UTC !!!")
+            say(f"!!! DAILY LOSS STOP{when}: today's live net {_usd(day['net'])} is below -${DAILY_LOSS_LIMIT_USD} — "
+                f"no new live buys until midnight UTC; every market carries on in dry run !!!", True)
 
     def finish(t, result):
         with lock:
             tr = trades.pop(t, None)
         if tr is None: return
-        c = cls(asset(t))
+        a, c, md = asset(t), cls(asset(t)), ("live" if tr.live else "dry")
         won = (result == "yes") == tr.yes
         net = tr.n * (100 * won - tr.px) - taker_fee_c(tr.n, tr.px)
         new_day_check()
-        day["net"] += net
-        day["low"] = min(day["low"], day["net"])
-        for r in (run[c], by_band[(c, band_name(tr.px))]):
+        day[md] += net
+        if tr.counts:
+            day["net"] += net
+            day["low"] = min(day["low"], day["net"])
+        for r in (run[(c, md)], by_band[(c, md, band_name(tr.px))], per_mkt[(a, md)]):
             r["markets"] += 1; r["won"] += int(won); r["net"] += net; r["cost"] += tr.n * tr.px; r["n"] += tr.n
-        r = run[c]
-        say(f"SETTLED {result.upper()}  {asset(t)} ({c}) {t[-7:]}: {tr.n}x {'YES' if tr.yes else 'NO'} @ {tr.px}c "
-            f"{'WON' if won else 'lost'} {_usd(net)}  | {c} run {_usd(r['net'])} over {r['markets']} markets ({r['won']} won)"
-            f"  | today {_usd(day['net'])}")
-        close_done(tr.close)
+        pm = per_mkt[(a, md)]
+        pm["res"].append("W" if won else "L")
+        r = run[(c, md)]
+        say(f"{tag(tr.live)}  SETTLED {result.upper()}  {a} ({c}) {t[-7:]}: {tr.n}x {'YES' if tr.yes else 'NO'} @ {tr.px}c "
+            f"{'WON' if won else 'lost'} {_usd(net)}  | {a} streak {streak(pm['res'])}"
+            f"  | {c} {'live' if tr.live else 'dry-run'} run {_usd(r['net'])} over {r['markets']} markets ({r['won']} won)"
+            f"  | today {'live' if live else 'switched-on'} {_usd(day['net'])}", tr.live)
+        if tr.counts: close_done(tr.close)
 
     def close_done(close):
         with lock:
@@ -742,24 +783,45 @@ def main():
         if last: round_settled(close)
 
     def status():
-        say(f"[status] {'LIVE' if live else 'dry run'} · trading {', '.join(on)}")
+        say(f"[status] {'LIVE on ' + ', '.join(on) if live else 'dry run (all markets)'}")
         for c in ("crypto", "commodity"):
-            r = run[c]
-            avg = r["cost"] / r["n"] if r["n"] else 0
-            won = 100 * r["won"] / r["markets"] if r["markets"] else 0
-            print(f"           {c:9}: {r['markets']:3} markets, {r['won']:3} won ({won:.0f}%), avg buy {avg:.1f}c, net {_usd(r['net'])}")
-            for lo, hi in PRICE_BANDS:
-                q = by_band[(c, f"{lo}-{hi}c")]
-                if q["markets"]:
-                    print(f"              bought {lo}-{hi}c: {q['markets']:3} markets, {q['won']:3} won "
-                          f"({100 * q['won'] / q['markets']:.0f}%), net {_usd(q['net'])}")
-        for line in gw.summary(): print(f"           {line}")
+            names = [a for a in ALL_MARKETS if cls(a) == c]
+            for md in MODES:
+                lv = md == "live"
+                now_in = [a for a in names if (is_live(a) if lv else not is_live(a))]
+                r = run[(c, md)]
+                if not now_in and not r["markets"]: continue
+                avg = r["cost"] / r["n"] if r["n"] else 0
+                won = 100 * r["won"] / r["markets"] if r["markets"] else 0
+                head = f"  {tag(lv)}  {c.upper():9} {r['markets']:3} markets, {r['won']:3} won ({won:.0f}%), avg buy {avg:.1f}c, net {_usd(r['net'])}"
+                print(paint(head, lv))
+                for lo, hi in PRICE_BANDS:
+                    q = by_band[(c, md, f"{lo}-{hi}c")]
+                    if q["markets"]:
+                        print(paint(f"              bought {lo}-{hi}c: {q['markets']:3} markets, {q['won']:3} won "
+                                    f"({100 * q['won'] / q['markets']:.0f}%), net {_usd(q['net'])}", lv))
+                for a in names:
+                    pm = per_mkt[(a, md)]
+                    if not pm["markets"] and a not in now_in: continue
+                    wr = f"{100 * pm['won'] / pm['markets']:3.0f}%" if pm["markets"] else "  - "
+                    print(paint(f"              {a:9} {pm['markets']:3} markets, {pm['won']:3} won ({wr}), net {_usd(pm['net']):>9}"
+                                f" · streak {streak(pm['res']):4} · last 10: {''.join(pm['res'][-10:]) or '-'}"
+                                + ("" if a in now_in else "  (not in this mode now)"), lv))
+        for g_, lv in ((gw_live, True), (gw_dry, False)):
+            if g_:
+                for line in g_.summary(): print(paint(f"           {tag(lv) if live else ''}{' ' if live else ''}{line}", lv))
         wh = flags["would_halt"]
-        print(f"           today (UTC) net {_usd(day['net'])}, lowest {_usd(day['low'])} (stop at -${DAILY_LOSS_LIMIT_USD} "
-              f"after a round settles, no limit on gains)"
-              + ("  — DAILY LOSS STOP HIT, no new buys today" if flags["halted"] else "")
-              + (f"  — dry run: the stop would have ended new buys at {wh:%H:%M} UTC" if wh else "")
-              + ("  — KILL SWITCH ON" if flags["kill"] else ""))
+        if live:
+            print(paint(f"           today (UTC) live net {_usd(day['live'])}, lowest {_usd(day['low'])} (stop at -${DAILY_LOSS_LIMIT_USD} "
+                        f"after a round settles, no limit on gains)"
+                        + ("  — DAILY LOSS STOP HIT, no new live buys today" if flags["halted"] else "")
+                        + ("  — KILL SWITCH ON" if flags["kill"] else ""), True))
+            print(f"           today (UTC) dry-run net {_usd(day['dry'])} (not real money)")
+        else:
+            print(f"           today (UTC) net of the switched-on markets {_usd(day['net'])}, lowest {_usd(day['low'])} "
+                  f"(stop at -${DAILY_LOSS_LIMIT_USD} after a round settles, no limit on gains) · all markets {_usd(day['dry'])}"
+                  + (f"  — dry run: the stop would have ended new buys at {wh:%H:%M} UTC" if wh else "")
+                  + ("  — KILL SWITCH ON" if flags["kill"] else ""))
 
     def probe_loop():
         while True:
@@ -805,8 +867,9 @@ def main():
                     last_kill = time.time()
                     if not flags["kill"] and os.path.exists(KILL_FILE):
                         flags["kill"] = True
-                        say(f"!!! KILL SWITCH ({KILL_FILE} found): no new buys. Positions already held ride to settlement. "
-                            f"Delete the file and restart to resume. !!!")
+                        say(f"!!! KILL SWITCH ({KILL_FILE} found): no new live buys; every market carries on in dry run. "
+                            f"Positions already held ride to settlement. Delete the file and restart to resume. !!!"
+                            if live else f"[safety] kill switch file found ({KILL_FILE}) — dry run: nothing is live anyway", live)
                 new_day_check()
                 for t in list(markets):
                     s2c = s2c_of(t)
@@ -848,7 +911,8 @@ def main():
                     say(f"[error] {type(e).__name__}: {e} — the bot keeps running (error #{errors['n']})")
             time.sleep(LOOP_SEC)
     except KeyboardInterrupt:
-        gw.pool.shutdown(wait=True)
+        for g_ in (gw_live, gw_dry):
+            if g_: g_.pool.shutdown(wait=True)
         print("[stopped] no new buys. Positions already bought stay on Kalshi and settle there. Totals so far:")
         status()
     finally:
