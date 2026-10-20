@@ -431,6 +431,31 @@ up to 5 per side. Most trips sell (90-98%), but the few that don't are big losse
 Live paper test: MM15Min V1 (bots/mm15min_v1/, from Oct 17) runs `fav` (85-98c) and `mm` (both sides 3-97c)
 on crypto AND commodities (user: live crypto may differ from the backtest), totals kept separately per class.
 
+## Can the two-sided MM be tuned? (user's question, Oct 20)
+User: in the MM15Min V2 dry run, `fav` wins ~91% and gains, `mm` (both sides 3-97c) wins ~49% and loses.
+analysis/mm_tune.py: grid on V38 (queue model, 735 markets) of price band x time window x spread / queue filters,
+both queue models, split into earlier / later half of the markets; analysis/mm_tune_v37.py: the candidates on
+V37 (Oct 9-14, 2,419 markets, never seen by the grid) with the worst-case rule (fills only when the price trades
+through the bid). c per contract:
+| | V38 queue model (halves) | V37 worst case (days up) |
+|---|---|---|
+| crypto mm now, 3-97c whole market | -0.69 (-1.60 / +0.24) | -1.47 (0/6) |
+| crypto 75-90c, first 5 min only | +7.92 (+5.56 / +10.33) | -0.29 (2/6) |
+| crypto 70-90c, first 5 min only | +4.98 (+3.93 / +5.98) | -0.48 (2/6) |
+| crypto fav 85-98c (reference) | +1.25 | -1.96 (1/6) |
+| commodity mm now, 3-97c whole market | -0.04 (-0.08 / -0.00) | -0.89 (0/6) |
+| commodity 75-84c whole market | +5.17 (+6.48 / +3.99) | -0.05 (4/6) |
+| commodity 75-90c whole market | +4.37 (+6.14 / +2.72) | -0.09 (3/6) |
+| commodity fav 85-98c (reference) | +4.20 | +0.42 (3/6) |
+- No version of true two-sided quoting works: every band that includes the middle (36-64c), and every spread,
+  queue-size or time filter on 3-97c, still loses on V37 every day. Crypto 36-64c is the worst (-3c on V38).
+  The ~50% win rate at ~51c average price is break-even before adverse selection; a slow bot at the back of
+  the queue gets filled mostly when the price is moving through it.
+- What helps is bidding only the side already leading at 75-90c: crypto only in the first 5 minutes (later
+  windows lose), commodities all market (75-84c does not overlap `fav`). Big on V38, about break-even in the V37
+  worst case, where it beats the current mm by ~1c and is in line with the `fav` reference. That is no longer
+  market making but a cheaper-band version of the favourite strategy; not proven positive out of sample.
+
 ## How long a price stays above a threshold (user's question, checked Oct 18)
 Test (analysis/hold_above.py, V37 Oct 9-14 + V38 Oct 15-16, 3,080 markets): the first time a side's bid reaches T
 (50, 53, ... 98c), how long it stays >= T without dipping below; if it stays D seconds (0-300), buy at the ask then.
