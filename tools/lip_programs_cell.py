@@ -29,8 +29,8 @@ def reward_usd(p):
     """The program's reward in dollars, from whichever field Kalshi sends."""
     for k in ("period_reward_dollars", "reward_dollars", "total_reward_dollars"):
         if num(p.get(k)) is not None: return num(p[k])
-    for k in ("period_reward", "reward", "total_reward"):          # assumed to be in cents
-        if num(p.get(k)) is not None: return num(p[k]) / 100
+    for k in ("period_reward", "reward", "total_reward"):          # in 1/100 cents: 1,000,000 = $100
+        if num(p.get(k)) is not None: return num(p[k]) / 10000
     return None
 
 progs = fetch("active")
@@ -50,6 +50,6 @@ if progs:
     print("\n15-minute series with liquidity rewards:", ", ".join(sorted(fifteen)) if fifteen else "NONE")
     print(f"\nTOP {SHOW} PROGRAMS BY REWARD:")
     for p in sorted(progs, key=lambda p: -(reward_usd(p) or 0))[:SHOW]:
-        print(f"  {tick(p):40} reward ${reward_usd(p) or 0:9,.2f}  target {p.get('target_size')}  "
+        print(f"  {tick(p):40} reward ${reward_usd(p) or 0:9,.2f}  target {p.get('target_size_fp', p.get('target_size'))}  "
               f"discount {p.get('discount_factor_bps', p.get('discount_factor'))}  "
               f"{p.get('start_date', p.get('start_ts', ''))} -> {p.get('end_date', p.get('end_ts', ''))}")
