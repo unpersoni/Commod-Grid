@@ -670,3 +670,19 @@ analysis/mm_overnight_loss.py on V4's Drive files (rounds closing 23:30 Oct 20 -
   About 20 rounds, coins moving together: one bad night or a real flaw cannot be told apart yet.
 - Meaning: the bot is not market making but selling longshots one-sided and holding to settlement: many small
   wins, rare large correlated losses. It needs win rates of ~86% (fav) and ~77% (lean) just to break even.
+
+## Market making, from outside sources (user's request, Oct 21; no backtests)
+- Kalshi trade data (VoxEU/CEPR column on Bürgi, Deng & Whelan): takers lose ~32% on average, makers ~10%; makers
+  buying at 50c+ made +2.6% before fees. Kalshi's co-founder says its own market-making arm is "not profitable".
+- Stanford (Bartlett & O'Hara, 41.6M Kalshi trades): makers earn ~2x per contract in single-name markets (casual
+  YES overbetting) vs broad ones; one-sided flow predicts maker losses.
+- Retail Polymarket makers who made money did it mainly through liquidity rewards; when rewards fell, so did profit.
+- The playbook: market choice, fair value, both sides, inventory caps and skew, pull on fast moves / news / before
+  settlement, markouts, speed. The 15-minute crypto/commodity markets are the wrong place for a slow maker (fast
+  outside price, 2 designated providers on crypto 15-min).
+- Kalshi's Liquidity Incentive Program (tools/lip_programs_cell.py, lip_finder_cell.py, run by the user Oct 21):
+  6,640 active programs, ~$748k on offer; rewards in 1/100 cents (1,000,000 = $100). 15-minute series with rewards:
+  copper, palladium, platinum, natgas, 5 FX pairs, crypto lead; not BTC/ETH/SOL/XRP/DOGE. Finder snapshot: AAA daily
+  gas by state ~$6.26/h pool per market, 100 contracts a side would get ~23-33%; Trump-mention markets ~$16/h pool,
+  7-12%; Miami hourly temperature $102/h but one-hour programs in nearly decided markets.
+- Built: bots/lip_maker_v1 (two-sided reward maker, gas markets by default).
