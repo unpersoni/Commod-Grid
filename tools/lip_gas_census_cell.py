@@ -9,11 +9,16 @@ BASE = "https://api.elections.kalshi.com/trade-api/v2"
 PREFIX = "KXAAAGASD"
 CONTRACTS = 10
 REWARD_UNIT = 10000
+MAX_BOOKS = 200        # read at most this many order books (the best-paying gas markets first)
+T0 = time.time()
+def say(msg): print(f"[{time.time() - T0:5.0f}s] {msg}", flush=True)
+say("reading Kalshi's reward programs (about 7 pages of 1,000)...")
 
 def get(path, params=None):
     for _ in range(3):
         r = requests.get(BASE + path, params=params, timeout=20)
         if r.status_code == 429: time.sleep(1); continue
+        if r.status_code != 200: say(f"Kalshi answered {r.status_code} to {path}: {r.text[:150]}")
         return r.json() if r.status_code == 200 else None
     return None
 
@@ -31,6 +36,7 @@ for _ in range(50):
     if cursor: p["cursor"] = cursor
     d = get("/incentive_programs", p) or {}
     progs += d.get("incentive_programs") or []
+    say(f"  {len(progs)} programs so far")
     cursor = d.get("next_cursor")
     if not cursor: break
 now = dt.datetime.now(dt.timezone.utc)
@@ -43,13 +49,15 @@ for p in progs:
     per_h = p["period_reward"] / REWARD_UNIT / max((end - start).total_seconds() / 3600, 0.25)
     if t not in gas or per_h > gas[t]["per_h"]:
         gas[t] = dict(per_h=per_h, target=float(p.get("target_size_fp") or 0), disc=p.get("discount_factor_bps", 5000) / 10000)
-print(f"AAA gas reward markets right now: {len(gas)} (reading their order books...)")
+say(f"AAA gas reward markets right now: {len(gas)} — reading the order books of the best-paying {min(len(gas), MAX_BOOKS)}...")
 
 by_state = collections.defaultdict(lambda: {"markets": 0, "quotable": 0, "pool": 0.0, "est": 0.0, "cap": 0.0})
 rows = []
-for t, g in gas.items():
+for i, (t, g) in enumerate(sorted(gas.items(), key=lambda kv: -kv[1]["per_h"])):
     st = t.split("-")[0][len(PREFIX):]
     b = by_state[st]; b["markets"] += 1; b["pool"] += g["per_h"]
+    if i >= MAX_BOOKS: continue
+    if i and i % 25 == 0: say(f"  {i} order books read, {len(rows)} quotable so far")
     d = get(f"/markets/{t}/orderbook"); time.sleep(0.06)
     est, cap, ok = 0.0, 0.0, True
     for side in ("yes", "no"):
