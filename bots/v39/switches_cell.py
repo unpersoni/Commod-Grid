@@ -14,6 +14,8 @@ SKIP_MARKETS = []           # take single markets off live trading by name, e.g.
                             # Markets that are off are still followed in DRY RUN, so the log shows every market.
 
 CONTRACTS = 10              # contracts per buy
+BUY_DELAY_SEC = 90          # the favourite is tagged in the first minute and bought 90 s into the market
+                            # (killed orders retried until 120 s in) · 0 = buy at the tag, as before
 DAILY_LOSS_LIMIT_USD = 50   # once a 15-minute round has settled, if today's (UTC) live net is below -$50:
                             # no new live buys until midnight UTC (no limit on gains)
 

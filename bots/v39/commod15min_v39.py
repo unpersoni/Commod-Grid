@@ -61,9 +61,12 @@ TRADE_COMMODITIES = _sw.get("TRADE_COMMODITIES", True)  # GOLD, SILVER, WTI, COP
 INVERSE_MARKETS   = _sw.get("INVERSE_MARKETS", ["WTI"])   # these markets buy the UNDERDOG (the side that isn't the favourite)
 SKIP_MARKETS      = _sw.get("SKIP_MARKETS", [])         # single markets not to trade, by name, e.g. ["WTI", "DOGE"]
 CONTRACTS         = _sw.get("CONTRACTS", 10)            # per buy
+BUY_DELAY_SEC     = _sw.get("BUY_DELAY_SEC", 90)        # tag the opening favourite in the first minute, buy it this many
+                                                        # seconds into the market (0 = buy at the tag, as before)
 DAILY_LOSS_LIMIT_USD = _sw.get("DAILY_LOSS_LIMIT_USD", 50)  # checked once each 15-minute round has settled; no limit on gains
 
-OPEN_WINDOW_SEC = 60      # buy only in the first 60 seconds of the market
+OPEN_WINDOW_SEC = 60      # tag (BUY_DELAY_SEC = 0: buy) only in the first 60 seconds of the market
+BUY_WINDOW_SEC  = 30      # with a delay: the buy (and retries of killed orders) from BUY_DELAY_SEC to +30 s in
 OPEN_MIN_C      = 56      # buy the side whose ask is 56c ...
 OPEN_MAX_C      = 95      # ... to 95c
 MAX_SPREAD_C    = 5       # no buy when ask - bid is wider than this
@@ -602,6 +605,17 @@ def opening_buy(candle):
             if OPEN_MIN_C <= ask <= OPEN_MAX_C: return yes, ask, (100 - yb if yes else ya)
     return None
 
+def delayed_buy(candles):
+    """With BUY_DELAY_SEC > 0: the favourite tagged from the first 1-minute candle, priced at the end of the second
+    minute (the closest Kalshi's 1-minute history gets to the buy). Returns (yes?, ask paid, the other side's ask) or None."""
+    tag = opening_buy(candles[0]) if candles else None
+    if tag is None or len(candles) < 2: return None
+    for key in ("close", "open"):
+        yb, ya = _cents(candles[1].get("yes_bid"), key), _cents(candles[1].get("yes_ask"), key)
+        if yb is None or ya is None or not (0 <= yb < ya <= 100) or ya - yb > MAX_SPREAD_C: continue
+        return (True, ya, 100 - yb) if tag[0] else (False, 100 - yb, ya)
+    return None
+
 def fetch_history(sess, k, cycles, say):
     """The last `cycles` settled 15-minute windows of every market and V39's opening buy in each.
     Returns (rows, closes, no_price) or (None, None, None) when Kalshi's history cannot be read."""
@@ -620,9 +634,9 @@ def fetch_history(sess, k, cycles, say):
         start = parse_iso(m.get("open_time")) or (close - dt.timedelta(seconds=900))
         s0 = int(start.timestamp())
         d = api_get(sess, k, f"/series/{series_of(t)}/markets/{t}/candlesticks",
-                    {"start_ts": s0, "end_ts": s0 + 60, "period_interval": 1})
+                    {"start_ts": s0, "end_ts": s0 + (120 if BUY_DELAY_SEC > 0 else 60), "period_interval": 1})
         cs = sorted((d or {}).get("candlesticks", []) or [], key=lambda c: c.get("end_period_ts") or 0)
-        buy = opening_buy(cs[0]) if cs else None
+        buy = (delayed_buy(cs) if BUY_DELAY_SEC > 0 else opening_buy(cs[0])) if cs else None
         if cs and buy is None and not shown["raw"] and _cents(cs[0].get("yes_ask"), "open") is None \
                 and _cents(cs[0].get("yes_ask"), "close") is None:
             shown["raw"] = True
@@ -644,8 +658,12 @@ def history_report(sess, k, say, switched_on, cycles):
         say("[history] Kalshi's market history could not be read — check the key and the connection, then run the cell again"); return
     say(f"[history] THE LAST {len(closes)} CYCLES (closing {closes[0]:%H:%M}-{closes[-1]:%H:%M} UTC), "
         f"from Kalshi's price history:")
-    print(f"           V39's rule on each market's first-minute prices · not traded: an estimate (bought at the ask, "
-          f"{CONTRACTS} contracts, taker fee)")
+    if BUY_DELAY_SEC > 0:
+        print(f"           V39's rule: favourite tagged on each market's first-minute prices, bought at its ask at the "
+              f"2-minute mark (the bot buys at {BUY_DELAY_SEC}s) · not traded: an estimate ({CONTRACTS} contracts, taker fee)")
+    else:
+        print(f"           V39's rule on each market's first-minute prices · not traded: an estimate (bought at the ask, "
+              f"{CONTRACTS} contracts, taker fee)")
     for c in ("crypto", "commodity"):
         rs = sorted([r for r in rows if r["cls"] == c and r["buy"]], key=lambda r: r["close"])
         for r in rs:
@@ -685,7 +703,8 @@ def history_report(sess, k, say, switched_on, cycles):
                       + ("   ★ switched on" if a in switched_on else ""))
     no_buy = sum(1 for r in rows if r["have_price"] and not r["buy"])
     print(f"           no buy (no side at {OPEN_MIN_C}-{OPEN_MAX_C}c with a spread of {MAX_SPREAD_C}c or less in the first "
-          f"minute): {no_buy} markets" + (f" · no price history: {no_price}" if no_price else ""))
+          f"minute" + (", or no usable price at the 2-minute mark" if BUY_DELAY_SEC > 0 else "")
+          + f"): {no_buy} markets" + (f" · no price history: {no_price}" if no_price else ""))
 
 def show_history(cycles=5):
     """The HISTORY cell: how V39's rule did in the last `cycles` 15-minute cycles (nothing is traded)."""
@@ -765,6 +784,8 @@ def check_switches():
         sys.exit(f"SKIP_MARKETS has unknown names {bad}. Use these names: {', '.join(ALL_MARKETS)}")
     if not (isinstance(CONTRACTS, int) and 1 <= CONTRACTS <= 100):
         sys.exit(f"CONTRACTS must be a whole number from 1 to 100 (it is {CONTRACTS!r})")
+    if not (isinstance(BUY_DELAY_SEC, int) and not isinstance(BUY_DELAY_SEC, bool) and 0 <= BUY_DELAY_SEC <= 600):
+        sys.exit(f"BUY_DELAY_SEC must be a whole number of seconds from 0 to 600 (it is {BUY_DELAY_SEC!r})")
     if not (isinstance(DAILY_LOSS_LIMIT_USD, (int, float)) and DAILY_LOSS_LIMIT_USD > 0):
         sys.exit(f"DAILY_LOSS_LIMIT_USD must be a positive number of dollars (it is {DAILY_LOSS_LIMIT_USD!r})")
     if not isinstance(INVERSE_MARKETS, (list, tuple, set)) or [m for m in INVERSE_MARKETS if str(m).upper() not in ALL_MARKETS]:
@@ -798,8 +819,14 @@ def main():
     print(f"crypto: {'ON' if TRADE_CRYPTO else 'OFF'} · commodities: {'ON' if TRADE_COMMODITIES else 'OFF'}"
           + (f" · skipped: {', '.join(str(m).upper() for m in SKIP_MARKETS)}" if SKIP_MARKETS else "")
           + (f" · INVERSE (buy the underdog): {', '.join(sorted(inv))}" if inv else ""))
-    print(f"opening buy: {CONTRACTS} contracts of the side whose ask is {OPEN_MIN_C}-{OPEN_MAX_C}c in the first "
-          f"{OPEN_WINDOW_SEC}s of the market · no buy if the spread is over {MAX_SPREAD_C}c · hold to settlement")
+    if BUY_DELAY_SEC > 0:
+        print(f"opening favourite: tagged in the first {OPEN_WINDOW_SEC}s of the market (the side whose ask is "
+              f"{OPEN_MIN_C}-{OPEN_MAX_C}c, spread {MAX_SPREAD_C}c or less) · WAIT: bought {BUY_DELAY_SEC}s into the market at "
+              f"its ask then, whatever the price (until {BUY_DELAY_SEC + BUY_WINDOW_SEC}s in, spread {MAX_SPREAD_C}c or less) · "
+              f"{CONTRACTS} contracts · hold to settlement")
+    else:
+        print(f"opening buy: {CONTRACTS} contracts of the side whose ask is {OPEN_MIN_C}-{OPEN_MAX_C}c in the first "
+              f"{OPEN_WINDOW_SEC}s of the market · no buy if the spread is over {MAX_SPREAD_C}c · hold to settlement")
     print(f"quick orders: fill-or-kill, limit = ask seen + {MAX_SLIPPAGE_C}c · killed orders retried in the window "
           f"(at most {MAX_TRIES_PER_MARKET} tries per market) · {ORDER_WORKERS} sender threads · at most {MAX_WRITES_PER_SEC} actions/s")
     print(f"daily loss stop: after each 15-minute round settles, no new live buys if today's (UTC) live net is below "
@@ -820,6 +847,7 @@ def main():
     lock = threading.RLock()
     markets, rest_px, trades, pending, done = {}, {}, {}, set(), set()
     tries = collections.Counter()
+    tagged = {}                                      # BUY_DELAY_SEC > 0: ticker -> (favourite is YES?, its ask, s2c) at the tag
     settle_due, settled = {}, set()
     open_by_close = collections.Counter()            # stop-counting trades still waiting for their result, per close time
     def new_tally(): return {"markets": 0, "won": 0, "net": 0, "cost": 0, "n": 0}
@@ -863,9 +891,12 @@ def main():
             trades[t] = Trade(yes, fill, n, s2c, m["close"] if m else None, lv, counts)
             trades[t].inv = a in inv
             if counts: open_by_close[trades[t].close] += 1
+        tg = tagged.get(t)
+        waited = "" if not tg else (f" · favourite tagged @ {tg[1]}c {900 - tg[2]:.0f}s in, bought after the "
+                                    f"{BUY_DELAY_SEC}s wait")
         say(f"{tag(lv)}  BUY  {n}x {'YES' if yes else 'NO'} @ {fill}c  {a} ({cls(a)}) {t[-7:]}  "
             f"{'' if s2c is None else f'{s2c:.0f}s left'}  (ask seen {ask_seen}c)" + (" · INVERSE: the underdog" if a in inv else "")
-            + " · hold to settlement", lv)
+            + waited + " · hold to settlement", lv)
 
     def evaluate(t):
         a = asset(t)
@@ -876,20 +907,38 @@ def main():
         if not (0 <= yb < ya <= 100): return
         with lock:
             if t in trades or t in pending or t in done: return
-            if not (900 - OPEN_WINDOW_SEC <= s2c <= 905) or ya - yb > MAX_SPREAD_C: return
-            for yes, ask in ((True, ya), (False, 100 - yb)):
-                if OPEN_MIN_C <= ask <= OPEN_MAX_C:
-                    if a in inv:                                     # inverse market: buy the other side (the underdog)
-                        yes, ask = (not yes), (100 - yb if yes else ya)
-                    if tries[t] >= MAX_TRIES_PER_MARKET:
-                        done.add(t)
-                        say(f"[order] {a} {t[-7:]}: {MAX_TRIES_PER_MARKET} tries, none filled — no more tries in this market")
-                        return
-                    tries[t] += 1
-                    pending.add(t)                                   # one order in flight per market
-                    lv = is_live(a)
-                    (gw_live if lv else gw_dry).buy(t, yes, ask, lambda *r, lv=lv: on_bought(*r, lv))
+            if ya - yb > MAX_SPREAD_C: return
+            if BUY_DELAY_SEC > 0:
+                if t not in tagged:                                  # tag the opening favourite; no buy yet
+                    if not (900 - OPEN_WINDOW_SEC <= s2c <= 905): return
+                    for yes, ask in ((True, ya), (False, 100 - yb)):
+                        if OPEN_MIN_C <= ask <= OPEN_MAX_C:
+                            tagged[t] = (yes, ask, s2c); return
                     return
+                if s2c > 900 - BUY_DELAY_SEC: return                 # still waiting
+                if s2c < 900 - BUY_DELAY_SEC - BUY_WINDOW_SEC:       # no buy in the window: none in this market
+                    done.add(t); return
+                yes = tagged[t][0]                                   # the tagged side at its ask now, whatever the price
+                ask = ya if yes else 100 - yb
+                if a in inv:                                         # inverse market: the other side (the underdog)
+                    yes, ask = (not yes), (100 - yb if yes else ya)
+                if not (1 <= ask <= 99): return
+            else:
+                if not (900 - OPEN_WINDOW_SEC <= s2c <= 905): return
+                for yes, ask in ((True, ya), (False, 100 - yb)):
+                    if OPEN_MIN_C <= ask <= OPEN_MAX_C: break
+                else:
+                    return
+                if a in inv:                                         # inverse market: buy the other side (the underdog)
+                    yes, ask = (not yes), (100 - yb if yes else ya)
+            if tries[t] >= MAX_TRIES_PER_MARKET:
+                done.add(t)
+                say(f"[order] {a} {t[-7:]}: {MAX_TRIES_PER_MARKET} tries, none filled — no more tries in this market")
+                return
+            tries[t] += 1
+            pending.add(t)                                           # one order in flight per market
+            lv = is_live(a)
+            (gw_live if lv else gw_dry).buy(t, yes, ask, lambda *r, lv=lv: on_bought(*r, lv))
 
     def on_tick(t, yb, ya):
         if t in markets: evaluate(t)              # the buy fires on the price update itself
@@ -1057,13 +1106,14 @@ def main():
                     if time.time() < due[0]: continue
                     if t not in trades and t not in pending:               # nothing bought here: no lookup needed
                         settled.add(t); del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
+                        tagged.pop(t, None)
                         continue
                     checked += 1
                     m = fetch_market(sess, k, t)
                     res = m.get("result")
                     if res in ("yes", "no"):
                         finish(t, res)
-                        settled.add(t)
+                        settled.add(t); tagged.pop(t, None)
                         del settle_due[t]; markets.pop(t, None); rest_px.pop(t, None)
                     elif time.time() > due[1]:
                         with lock: tr = trades.pop(t, None)
@@ -1071,7 +1121,7 @@ def main():
                             say(f"[settle] no result for {t} after {SETTLE_GIVEUP_SEC // 60} min — left out of the totals; "
                                 f"check it on Kalshi")
                             close_done(tr.close)
-                        settled.add(t)
+                        settled.add(t); tagged.pop(t, None)
                         del settle_due[t]; markets.pop(t, None)
                     else:
                         due[0] = time.time() + SETTLE_RETRY_SEC

@@ -1,9 +1,10 @@
 # V39 tests: (1) dry run end to end, (2) LIVE path against a fake Kalshi (nothing real is reached),
-# (3) round-based daily stop, (4) switch checks, (5) fill parsing.
+# (3) round-based daily stop, (4) switch checks, (5) fill parsing, (6) start-up history, (7) the BUY_DELAY_SEC wait.
+# Tests 1-6 run with BUY_DELAY_SEC = 0 (buy at the tag); test 7 with the 90-second default.
 import os, sys, time, threading, datetime as dt, io, contextlib, _thread, glob, shutil, json, re
 from cryptography.hazmat.primitives.asymmetric import rsa
 SP = os.path.dirname(os.path.abspath(__file__))
-SRC = os.environ.get("V39_SRC", f"{SP}/commod15min_v39.py")
+SRC = os.environ.get("V39_SRC", f"{SP}/v39_src.py")
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)      # throwaway key: real signing, no account
 
 def load(out, **over):
@@ -11,6 +12,7 @@ def load(out, **over):
     code = open(SRC).read().replace("/content/drive/MyDrive/", out + "/")
     g = {"__name__": "botmod"}; exec(compile(code, "v39", "exec"), g)
     g.update(MARKETS_REFRESH_SEC=0.3, LOOP_SEC=0.1, SETTLE_RETRY_SEC=0.2, STATUS_EVERY_SEC=2, LATENCY_PROBE_SEC=0.5)
+    over.setdefault("BUY_DELAY_SEC", 0)    # tests 1-6: buy at the tag
     g.update(over)                         # what the SWITCHES cell does: set the names, then run main()
     return g
 
@@ -88,7 +90,7 @@ def script1():
     time.sleep(1.0)
     clock["off"] = 900; time.sleep(3.5)
     _thread.interrupt_main()
-txt = run_bot(g, script1); print(txt[-3000:])
+txt = run_bot(g, script1); print(txt[-3000:]); open(f"{SP}/dry_log.txt", "w").write(txt)
 fee = g["taker_fee_c"]; usd = g["_usd"]
 assert not sent, f"dry run SENT something: {sent[:1]}"
 assert "DRY RUN" in txt and "🟢 LIVE" not in txt and "\x1b[" not in txt
@@ -193,7 +195,7 @@ def script2():
     tick(feed2, M2["B2"], 60, 61)         # round 2 opening: no live buy after the stop (dry run only)
     time.sleep(1.0)
     _thread.interrupt_main()
-txt2 = run_bot(g2, script2); print(txt2[-4500:])
+txt2 = run_bot(g2, script2); print(txt2[-4500:]); open(f"{SP}/live_log.txt", "w").write(txt2)
 orders = [p for p in posted if p[0].endswith("/portfolio/events/orders")]
 assert all(u == "https://api.elections.kalshi.com/trade-api/v2/portfolio/events/orders" for u, _, _ in orders)
 assert all(h["KALSHI-ACCESS-KEY"] == "test-key-id" and h["KALSHI-ACCESS-SIGNATURE"] for _, _, h in posted)
@@ -267,7 +269,8 @@ for over, msg in (({"DRY_RUN": "False"}, "DRY_RUN must be True or False without 
                   ({"INVERSE_MARKETS": ["WTX"]}, "INVERSE_MARKETS must be a list of market names"),
                   ({"DRY_RUN": False, "KEY_ID": "k", "TRADE_CRYPTO": False, "TRADE_COMMODITIES": False}, "every market is switched off"),
                   ({"DRY_RUN": False}, "live trading needs KEY_ID"),
-                  ({"CONTRACTS": 0}, "CONTRACTS must be"), ({"DAILY_LOSS_LIMIT_USD": -5}, "DAILY_LOSS_LIMIT_USD must be")):
+                  ({"CONTRACTS": 0}, "CONTRACTS must be"), ({"DAILY_LOSS_LIMIT_USD": -5}, "DAILY_LOSS_LIMIT_USD must be"),
+                  ({"BUY_DELAY_SEC": "90"}, "BUY_DELAY_SEC must be"), ({"BUY_DELAY_SEC": 601}, "BUY_DELAY_SEC must be")):
     g4 = load(f"{SP}/run_v39_guard", **over)
     buf = io.StringIO()
     try:
@@ -282,7 +285,7 @@ g5 = {"__name__": "x", "DRY_RUN": False, "SKIP_MARKETS": ["WTI"]}               
 exec(compile(open(SRC).read(), "v39", "exec"), g5)
 assert g5["DRY_RUN"] is False and g5["SKIP_MARKETS"] == ["WTI"] and g5["TRADE_CRYPTO"] is True
 g6 = {"__name__": "x"}; exec(compile(open(SRC).read(), "v39", "exec"), g6)
-assert g6["DRY_RUN"] is True                                                      # no SWITCHES cell: dry run
+assert g6["DRY_RUN"] is True and g6["BUY_DELAY_SEC"] == 90                         # no SWITCHES cell: dry run, 90 s wait
 g6["COLORS"] = False
 assert g6["paint"]("x", True) == "x" and g6["streak"](list("WLLW")) == "W1" and g6["streak"](list("WLLL")) == "L3"
 print("SWITCH CHECKS PASSED")
@@ -370,6 +373,69 @@ with contextlib.redirect_stdout(buf): g7["history_report"](None, None, lambda m:
 h3 = buf.getvalue()
 assert "bought the UNDERDOG (inverse):   5 markets,   5 won (100%)" in h3, h3
 assert re.search(r"ETH\s+5 markets,\s+5 won \(100%\).* streak W5", h3), h3
+# the history with the wait: tagged on the first candle, priced on the second one's closing quote
+g7.update(BUY_DELAY_SEC=90, INVERSE_MARKETS=["WTI"])
+def candle_d(a_, s0):
+    c1 = candle(a_, s0)
+    if a_ == "BTC": return c1 + [{"end_period_ts": s0 + 120, "yes_bid": {"close": 70}, "yes_ask": {"close": 72}}]   # YES 72c
+    if a_ == "GOLD": return c1 + [{"end_period_ts": s0 + 120, "yes_bid": {"close": 40}, "yes_ask": {"close": 50}}]  # 10c spread
+    if a_ == "ETH": return c1 + [{"end_period_ts": s0 + 120, "yes_bid": {"close": 30}, "yes_ask": {"close": 31}}]   # tagged YES: 31c
+    return c1
+def api7d(sess, k, path, params=None):
+    if path.endswith("/candlesticks"):
+        assert params["end_ts"] - params["start_ts"] == 120
+        return {"candlesticks": candle_d(g7["asset"](path.split("/")[2]), params["start_ts"])}
+    return api7(sess, k, path, params)
+g7["api_get"] = api7d
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf): g7["history_report"](None, None, lambda m: print(m), set(), 5)
+h4 = buf.getvalue(); print(h4)
+btc = 4 * (10 * 28 - fee(10, 72)) + (-720 - fee(10, 72)); eth = 5 * (-310 - fee(10, 31))   # ETH: YES (57c at the tag) fell to 31c
+assert f"CRYPTO     10 markets,   4 won (40%), avg buy 51.5c, net {usd(btc + eth)}" in h4, h4
+assert "COMMODITY   0 markets" in h4 and "bought at its ask at the 2-minute mark (the bot buys at 90s)" in h4
+assert "or no usable price at the 2-minute mark): 15 markets · no price history: 5" in h4, h4      # GOLD, XRP, DOGE
 print("HISTORY CHECKS PASSED")
+
+# ---------------- 7) BUY_DELAY_SEC = 90: tag in the first minute, buy 90 s in ----------------
+out8 = f"{SP}/run_v39_delay"
+g8 = load(out8, BUY_DELAY_SEC=90)
+M8 = {"B": "KXBTC15M-26OCT011215-15", "E": "KXETH15M-26OCT011215-15", "G": "KXGOLD15M-26OCT011215-15",
+      "W": "KXWTI15M-26OCT011215-15", "S": "KXSOL15M-26OCT011215-15"}
+res8 = {M8["B"]: "yes", M8["E"]: "yes", M8["G"]: "yes", M8["W"]: "yes", M8["S"]: "yes"}
+clock8, feed8 = wire(g8, M8, {t: 885 for t in M8.values()}, res8, [])
+g8["requests"].Session.post = lambda *a, **k: (_ for _ in ()).throw(AssertionError("sent"))
+def script8():
+    while feed8.on_tick is None: time.sleep(0.05)
+    time.sleep(0.8)
+    tick(feed8, M8["B"], 59, 60)        # BTC: favourite YES @ 60c tagged
+    tick(feed8, M8["E"], 20, 22)        # ETH: favourite NO @ 80c tagged
+    tick(feed8, M8["G"], 84, 85)        # GOLD: tagged, but a 10c spread for the whole buy window -> no buy
+    tick(feed8, M8["W"], 70, 71)        # WTI (inverse): favourite YES @ 71c tagged -> the NO is bought later
+    time.sleep(1.0)
+    assert "BUY  " not in buf8.getvalue(), "bought before the wait"
+    feed8.p.update({M8["B"]: (70, 72), M8["E"]: (45, 48), M8["G"]: (40, 50), M8["W"]: (65, 66)})
+    clock8["off"] = 50; time.sleep(0.3) # 65 s in: still waiting
+    tick(feed8, M8["S"], 58, 59)        # SOL: first price after the first minute -> never tagged, no buy
+    time.sleep(0.5)
+    assert "BUY  " not in buf8.getvalue(), "bought before 90 s"
+    clock8["off"] = 80; time.sleep(1.5) # 95 s in: buy the tagged side at its ask now
+    clock8["off"] = 120; time.sleep(0.8) # past the buy window
+    clock8["off"] = 900; time.sleep(3.0)
+    _thread.interrupt_main()
+buf8 = io.StringIO()
+threading.Thread(target=script8, daemon=True).start()
+with contextlib.redirect_stdout(buf8):
+    try: g8["main"]()
+    except KeyboardInterrupt: pass
+txt8 = buf8.getvalue(); print(txt8[-2500:])
+assert "WAIT: bought 90s into the market at its ask then, whatever the price (until 120s in" in txt8
+assert re.search(r"BUY  10x YES @ 72c  BTC \(crypto\) 1215-15  80\ds left  \(ask seen 72c\) · favourite tagged @ 60c 1\ds in, "
+                 r"bought after the 90s wait", txt8), txt8
+assert "BUY  10x NO @ 55c  ETH (crypto)" in txt8 and "favourite tagged @ 80c" in txt8
+assert "BUY  10x NO @ 35c  WTI (commodity)" in txt8 and "INVERSE: the underdog · favourite tagged @ 71c" in txt8
+assert "GOLD (commodity) 1215-15" not in txt8.split("[status]")[0] and "SOL (crypto) 1215" not in txt8
+assert txt8.count("  BUY  ") == 3, txt8
+assert "SETTLED YES  BTC (crypto) 1215-15: 10x YES @ 72c WON" in txt8 and "SETTLED YES  WTI (commodity) 1215-15: 10x NO @ 35c (inverse) lost" in txt8
+print("DELAY CHECKS PASSED")
 for d in glob.glob(f"{SP}/run_v39_*"): shutil.rmtree(d, ignore_errors=True)
 print("ALL CHECKS PASSED")
