@@ -653,3 +653,20 @@ On Kalshi the sell + reversal is one order (buy 2x the other side: positions net
 - Old tick/book/prints logs (Sep 18 - Oct 8) were deleted on Oct 9 to free Drive space; the next grid
   runs on V37 data (plus any remaining .csv.gz and trades/settlements files).
 - Kalshi sent the V34-V36 bots ticks for every Kalshi market; V37 filters to its own 11 markets.
+
+## MM15Min V4 overnight loss: what went wrong? (user's report, Oct 21: about -$800 overnight)
+analysis/mm_overnight_loss.py on V4's Drive files (rounds closing 23:30 Oct 20 - 07:15 Oct 21 UTC, all dry run).
+- V4 total -$751: crypto -$894 (fav first 5 min -$444, -20.9c per contract, won 67% of markets; lean -$450, -9.0c),
+  commodities +$143 (fav +$179, lean -$36). Earlier runs: V2 (Oct 19-20) crypto fav +$403, commodity fav +$263;
+  V3 (Oct 20) crypto fav -$104, lean +$21, commodity fav +$232, lean +$144. Commodities positive in all three
+  runs; crypto swings from +$400 to -$900.
+- The shape of the loss: 28 crypto rounds, 18 up (avg +$47), 10 down (avg -$174); the 5 worst rounds -$1,389.
+  The 5 coins move together, so a reversal loses on 4-5 coins at once at 75-90c a contract.
+- Not a bug and not averaging down: per-fill P&L recomputes exactly; capping fills at 10 or 20 contracts per
+  market leaves the c per contract unchanged (crypto fav -19 to -20c).
+- Not the fill simulation picking losers: in 100 crypto markets (01:15-06:00 UTC, from the tick files) every
+  market whose favourite reached 85-98c in the first 5 min was filled (38), and those favourites won 65.8%
+  (priced ~85c); 75-84c sides won 61% (priced ~76c). The market itself overrated the early favourite that night.
+  About 20 rounds, coins moving together: one bad night or a real flaw cannot be told apart yet.
+- Meaning: the bot is not market making but selling longshots one-sided and holding to settlement: many small
+  wins, rare large correlated losses. It needs win rates of ~86% (fav) and ~77% (lean) just to break even.
