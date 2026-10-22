@@ -10,6 +10,7 @@
 # DOWN prices are the mirror of UP: DOWN bid = 100 - UP ask, DOWN ask = 100 - UP bid, DOWN trade price = 100 - UP price.
 # Kalshi does not keep the full order book history (only live), so minute bid/ask + every trade is what history offers.
 # Public market data: no API key needed. A series already saved is skipped, so after a Colab stop just run it again.
+# incomplete.csv lists any market whose minute prices or trades could not all be read (leave them out of research).
 import os, io, csv, gzip, json, time, threading, datetime as dt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
@@ -39,19 +40,22 @@ sess = requests.Session()
 sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=WORKERS + 4))
 stats = {"requests": 0, "retries": 0}
 
+FAILED = object()            # get() gave up (not the same as "nothing there")
 def get(path, params=None):
-    for attempt in range(6):
+    last = None
+    for attempt in range(8):
         LIM.take(); stats["requests"] += 1
         try:
             r = sess.get(BASE + path, params=params, timeout=20)
             if r.status_code == 200: return r.json()
             if r.status_code == 404: return None
-            stats["retries"] += 1
-            time.sleep(min(2 ** attempt, 20) if r.status_code in (429, 500, 502, 503, 504) else 1)
-        except requests.RequestException:
-            stats["retries"] += 1; time.sleep(min(2 ** attempt, 20))
-    say(f"  gave up on {path} {params}")
-    return None
+            last = f"HTTP {r.status_code}: {r.text[:120]}"
+        except requests.RequestException as e:
+            last = f"{type(e).__name__}"
+        stats["retries"] += 1
+        time.sleep(min(2 ** attempt, 30))
+    say(f"  gave up on {path} ({last}) — this market is listed in incomplete.csv")
+    return FAILED
 
 def cents(d, key):
     """A price in cents from Kalshi's '<key>' (cents) or '<key>_dollars' ("0.5600") forms."""
@@ -82,8 +86,9 @@ def settled_markets(series, since):
     for _ in range(100):
         p = {"series_ticker": series, "status": "settled", "min_close_ts": since, "limit": 1000}
         if cursor: p["cursor"] = cursor
-        d = get("/markets", p) or {}
-        out += [m for m in d.get("markets", []) or [] if m.get("result") in ("yes", "no")]
+        d = get("/markets", p)
+        if d is FAILED: say(f"  {series}: the list of markets could not be read completely"); break
+        out += [m for m in (d or {}).get("markets", []) or [] if m.get("result") in ("yes", "no")]
         cursor = d.get("cursor")
         if not cursor: break
     return out
@@ -94,7 +99,9 @@ def candles(series, m):
     t, close = m["ticker"], ts(m["close_time"])
     start = ts(m.get("open_time")) or (close - dt.timedelta(minutes=15))
     d = get(f"/series/{series}/markets/{t}/candlesticks",
-            {"start_ts": int(start.timestamp()), "end_ts": int(close.timestamp()), "period_interval": 1}) or {}
+            {"start_ts": int(start.timestamp()), "end_ts": int(close.timestamp()), "period_interval": 1})
+    if d is FAILED: incomplete.append((t, "minute prices")); d = {}
+    d = d or {}
     rows = []
     for c in d.get("candlesticks", []) or []:
         end = c.get("end_period_ts")
@@ -117,7 +124,9 @@ def trades(m):
     for _ in range(500):
         p = {"ticker": t, "min_ts": int(start.timestamp()) - 60, "max_ts": int(close.timestamp()) + 60, "limit": 1000}
         if cursor: p["cursor"] = cursor
-        d = get("/markets/trades", p) or {}
+        d = get("/markets/trades", p)
+        if d is FAILED: incomplete.append((t, f"trades after {len(rows)}")); break
+        d = d or {}
         for tr in d.get("trades", []) or []:
             ct = ts(tr.get("created_time"))
             yp = cents(tr, "yes_price")
@@ -169,6 +178,7 @@ def write_gz(path, cols, rows):
         w = csv.writer(f); w.writerow(cols); w.writerows(rows)
     os.replace(tmp, path)
 
+incomplete = []
 os.makedirs(OUT, exist_ok=True)
 since = int(time.time()) - DAYS * 86400
 mpath = os.path.join(OUT, "markets.csv")
@@ -202,4 +212,12 @@ for series in SERIES:
                         num(m, "volume"), num(m, "open_interest")])
             known.add(m["ticker"])
     say(f"{series}: saved {len(crow):,} minute rows, {len(trow):,} trades and {len(brow):,} 15-second rows")
-say(f"DONE — {stats['requests']:,} requests ({stats['retries']} retried). Files in {OUT}")
+if incomplete:
+    ipath = os.path.join(OUT, "incomplete.csv")
+    new = not os.path.exists(ipath)
+    with open(ipath, "a", newline="") as f:
+        w = csv.writer(f)
+        if new: w.writerow(["ticker", "missing", "logged_utc"])
+        for t, what in incomplete: w.writerow([t, what, dt.datetime.now(dt.timezone.utc).isoformat()])
+say(f"DONE — {stats['requests']:,} requests ({stats['retries']} retried) · {len(incomplete)} market(s) incomplete"
+    + (" (listed in incomplete.csv)" if incomplete else "") + f". Files in {OUT}")
