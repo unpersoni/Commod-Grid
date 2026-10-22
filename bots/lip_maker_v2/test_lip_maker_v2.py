@@ -13,7 +13,7 @@ def load(out, **over):
     shutil.rmtree(out, ignore_errors=True); os.makedirs(out, exist_ok=True)
     code = open(SRC).read().replace("/content/drive/MyDrive/", out + "/")
     g = {"__name__": "botmod"}; exec(compile(code, "lipmm2", "exec"), g)
-    g.update(LOOP_SEC=0.1, STATUS_EVERY_SEC=1.5, LIVE_COUNTDOWN_SEC=0, REQUOTE_HOLD_SEC=0.3, FAST_MOVE_SEC=2,
+    g.update(LOOP_SEC=0.1, STATUS_EVERY_SEC=1.5, LIVE_COUNTDOWN_SEC=0, REQUOTE_HOLD_SEC=0.3, FAST_MOVE_SEC=2, STABLE_SEC=0.5,
              COOL_OFF_SEC=1.0, FILL_CHECK_SEC=0.2, RECONCILE_SEC=0.3, FEED_LOST_SEC=0.5)
     g.update(over)
     g["load_key"] = lambda: KEY
@@ -144,6 +144,11 @@ def script1(buf):
     time.sleep(0.6)
     F.trade(WI, 37, 30, "no")              # the new YES order (another 10) -> held 20 YES: net limit
     time.sleep(0.6)
+    NY0 = "KXAAAGASDNY-26OCT22-4.1500"              # a quote vanishing for a moment (cancel / re-post) is not a move
+    with K.lock: saved = K.books[NY0]; K.books[NY0] = ({20: 400}, {70: 400})
+    time.sleep(0.12)
+    with K.lock: K.books[NY0] = saved
+    time.sleep(2.5)
     F.ready.clear(); F.down_since = time.time()   # the price stream drops
     time.sleep(1.0)
     F.ready.set(); F.down_since = None
@@ -162,6 +167,8 @@ assert re.search(rf"create,{WI},yes,38,10,", orders_csv) and re.search(rf"create
 assert f"FILL  {WI}: bought 4 YES @ 38c (simulated, our turn in line)" in txt
 assert f"FILL  {WI}: bought 6 YES @ 38c (simulated, traded through)" in txt
 assert "held YES 20 / NO 0 · net +20" in txt
+assert "[safety] KXAAAGASDNY-26OCT22-4.1500" not in txt                      # the flicker did not pull it
+assert "by the end of today's quoting if this held" in txt
 assert "price stream down" in txt and "price stream back — quoting again" in txt
 assert "cancel (renewed (expiry))" in orders_csv.replace('"', "")            # orders renewed before their Kalshi expiry
 assert "[stopped] every order cancelled" in txt and "estimated reward +$" in txt

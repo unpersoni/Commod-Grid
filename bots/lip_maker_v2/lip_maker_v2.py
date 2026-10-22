@@ -49,8 +49,9 @@ MAX_LOSS_USD  = _sw.get("MAX_LOSS_USD", 30)         # fills down this much: ever
 
 PULL_BEFORE_CLOSE_MIN = 60    # no orders in a market's last 60 minutes
 MIN_PX, MAX_PX = 5, 95        # quote a side only while its best bid is 5-95c (nearly decided markets are skipped)
-FAST_MOVE_C    = 4            # the YES mid moving 4c+ ...
-FAST_MOVE_SEC  = 60           # ... within 60 s pulls both sides ...
+FAST_MOVE_C    = 4            # the YES mid (median of the last STABLE_SEC) moving 4c+ ...
+FAST_MOVE_SEC  = 60           # ... from its median a minute earlier pulls both sides ...
+STABLE_SEC     = 15           # medians over 15 s: quotes vanishing for a few seconds (cancel/re-post) are not a move
 COOL_OFF_SEC   = 300          # ... for 5 minutes
 REQUOTE_HOLD_SEC = 5          # an order is moved once its price has been off target this long
 ORDER_LIFE_MIN = 30           # every order expires on Kalshi's side 30 min after it is placed (if Colab dies, so do they)
@@ -604,7 +605,8 @@ def main():
     print(f"markets: Kalshi liquidity-reward programs in {', '.join(SERIES)} · best {MAX_MARKETS} by estimated reward, at most "
           f"{MAX_PER_STATE} per state/series · {CONTRACTS} contracts resting on EACH side · budget ${BUDGET_USD}")
     print(f"limits: at most {MAX_NET} contracts net per market · fills down ${MAX_LOSS_USD}: everything cancelled, no new quotes · "
-          f"no orders in the last {PULL_BEFORE_CLOSE_MIN} min · {FAST_MOVE_C}c move in {FAST_MOVE_SEC}s: both sides pulled for "
+          f"no orders in the last {PULL_BEFORE_CLOSE_MIN} min · {FAST_MOVE_C}c move in {FAST_MOVE_SEC}s (medians over "
+          f"{STABLE_SEC}s, so a quote vanishing for a few seconds is not a move): both sides pulled for "
           f"{COOL_OFF_SEC / 60:g} min · sides quoted only at {MIN_PX}-{MAX_PX}c · kill switch: create {KILL_FILE}")
     print("reward shown here is the bot's ESTIMATE; Kalshi's real payout: Rewards page / Account -> Activity -> Credits")
     print(f"every order expires on Kalshi's side {ORDER_LIFE_MIN} min after it is placed (renewed after {ORDER_RENEW_MIN} min "
@@ -748,9 +750,12 @@ def main():
                 if m.close is None and t in info: m.close = info[t]["close"]
         if new: say(f"[programs] PICKED {len(new)}: " + ", ".join(new))
         est_all = sum(c[0] for c in chosen)
+        # over the rest of each market's reward period, stopping PULL_BEFORE_CLOSE_MIN before its close
+        stop_at = lambda t: min(progs[t]["end"], info[t]["close"] - dt.timedelta(minutes=PULL_BEFORE_CLOSE_MIN))
+        est_left = sum(c[0] * max(0.0, (stop_at(c[2]) - now()).total_seconds() / 3600) for c in chosen)
         say(f"[programs] {len(progs)} reward programs in {', '.join(SERIES)} · {len(cands)} quotable now · quoting {len(chosen)} "
             f"in {len(per_grp)} states/series · ${used / 100:,.0f} of the ${BUDGET_USD} budget · estimated ${est_all:.2f}/h "
-            f"(${24 * est_all:,.0f}/day if this held all day)" + ("" if chosen else " — nothing suitable right now"))
+            f"(${est_left:,.0f} by the end of today's quoting if this held)" + ("" if chosen else " — nothing suitable right now"))
 
     def drop(m, s, reason):
         """Cancel our order on this side. It is forgotten only once the cancel is confirmed (else retried next pass)."""
@@ -840,8 +845,11 @@ def main():
         if m.best["yes"] is not None and m.best["no"] is not None:
             mid = (m.best["yes"] + 100 - m.best["no"]) / 2
             m.mids.append((t_now, mid))
-            while m.mids and t_now - m.mids[0][0] > FAST_MOVE_SEC: m.mids.popleft()
-            if max(x for _, x in m.mids) - min(x for _, x in m.mids) >= FAST_MOVE_C and t_now >= m.cool_until:
+            while m.mids and t_now - m.mids[0][0] > FAST_MOVE_SEC + STABLE_SEC: m.mids.popleft()
+            recent = sorted(x for t_, x in m.mids if t_ >= t_now - STABLE_SEC)
+            old = sorted(x for t_, x in m.mids if t_ <= t_now - FAST_MOVE_SEC)
+            moved = bool(recent and old) and abs(recent[len(recent) // 2] - old[len(old) // 2]) >= FAST_MOVE_C
+            if moved and t_now >= m.cool_until:
                 m.cool_until = t_now + COOL_OFF_SEC
                 m.mids.clear(); m.mids.append((t_now, mid))
                 pull(m, "fast move")

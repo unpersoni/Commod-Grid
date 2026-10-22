@@ -32,3 +32,13 @@ stop), switch checks and the stream parser.
 fills (-$1.50 marked). Fast-move pulls came in bursts across many states within seconds (~23:35, 00:35, 01:20 UTC):
 one participant repricing every gas market at once; pulling then is right. Some quotes sit at 1c where a book is
 thin (Kalshi's reference price is deep there): cheap, but whether such thin books earn rewards is unverified.
+
+## Second dry run (Oct 22, 02:46-13:07 UTC, stopped by hand)
+Ran 10 hours without freezing; a websocket drop (~08:05) and a book sequence gap (12:37) recovered within a second.
+- The gas reward programs run about 12:00-04:00 UTC (8 am - midnight ET); the markets close at midnight ET and the
+  bot stops picking them 90 minutes before. About 14 quotable hours a day, not 24: the "$/day" in the log now
+  counts only the rest of each market's quoting time.
+- The fast-move pull fired on quote flicker: a large participant cancelling and re-posting across every gas market
+  every few minutes made the top-of-book mid jump; the same markets were pulled again exactly when each cool-off
+  ended, and at 12:46 most markets had no orders (estimated reward $0.34/h). The check now compares the median
+  mid of the last 15 s with the median a minute earlier, so a few seconds without a quote is not a move.
