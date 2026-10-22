@@ -9,7 +9,9 @@
 #                               on each side. (Kalshi's own price history is per minute at the finest.)
 # DOWN prices are the mirror of UP: DOWN bid = 100 - UP ask, DOWN ask = 100 - UP bid, DOWN trade price = 100 - UP price.
 # Kalshi does not keep the full order book history (only live), so minute bid/ask + every trade is what history offers.
-# Public market data: no API key needed. A series already saved is skipped, so after a Colab stop just run it again.
+# Public market data: no API key needed. Each market is saved to Drive as soon as it is read (done_<SERIES>.txt lists
+# them), so after a Colab stop or crash just run it again: it carries on from the last saved market.
+# Rows are grouped by market (in the order markets finished); sort by ticker and time when analysing.
 # incomplete.csv lists any market whose minute prices or trades could not all be read (leave them out of research).
 import os, io, csv, gzip, json, time, threading, datetime as dt
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -190,11 +192,19 @@ TRADE_COLS = ["time_utc", "ticker", "sec_to_close", "up_price", "down_price", "c
 MARKET_COLS = ["ticker", "series", "event_ticker", "open_time", "close_time", "strike", "result", "up_won",
                "settlement_value", "expiration_value", "volume", "open_interest"]
 
-def write_gz(path, cols, rows):
-    tmp = path + ".tmp"
-    with gzip.open(tmp, "wt", newline="") as f:
-        w = csv.writer(f); w.writerow(cols); w.writerows(rows)
-    os.replace(tmp, path)
+def append_gz(path, cols, rows):
+    """Adds rows to a .csv.gz file (one gzip block per market; the header only when the file is new)."""
+    new = not os.path.exists(path)
+    with gzip.open(path, "at", newline="") as f:
+        w = csv.writer(f)
+        if new: w.writerow(cols)
+        w.writerows(rows)
+
+def market_row(m, series):
+    return [m["ticker"], series, m.get("event_ticker"), m.get("open_time"), m.get("close_time"),
+            m.get("floor_strike", m.get("cap_strike")), m.get("result"), int(m.get("result") == "yes"),
+            m.get("settlement_value_dollars", m.get("settlement_value")), m.get("expiration_value"),
+            num(m, "volume"), num(m, "open_interest")]
 
 incomplete = []
 os.makedirs(OUT, exist_ok=True)
@@ -207,31 +217,37 @@ say(f"fetching {DAYS} days of the 11 fifteen-minute series into {OUT}")
 for series in SERIES:
     cpath, tpath = os.path.join(OUT, f"candles_{series}.csv.gz"), os.path.join(OUT, f"trades_{series}.csv.gz")
     bpath = os.path.join(OUT, f"prices15s_{series}.csv.gz")
-    if os.path.exists(cpath) and os.path.exists(tpath) and os.path.exists(bpath):
-        say(f"{series}: already saved — skipped (delete its files to fetch it again)"); continue
+    donepath, okpath = os.path.join(OUT, f"done_{series}.txt"), os.path.join(OUT, f"complete_{series}.txt")
+    if os.path.exists(okpath):
+        say(f"{series}: already complete — skipped (delete its files to fetch it again)"); continue
+    done_set = set(open(donepath).read().split()) if os.path.exists(donepath) else set()
     ms = settled_markets(series, since)
-    say(f"{series}: {len(ms)} settled markets — reading minute prices and every trade...")
-    crow, trow, brow, done, t_series = [], [], [], 0, time.time()
+    todo = [m for m in ms if m["ticker"] not in done_set]
+    say(f"{series}: {len(ms)} settled markets" + (f", {len(ms) - len(todo)} already saved" if done_set else "")
+        + " — reading minute prices and every trade (each market is saved as soon as it is read)...")
+    n_tr, done, t_series = 0, 0, time.time()
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        futs = {ex.submit(lambda m: (candles(series, m), trades(m)), m): m for m in ms}
+        futs = {ex.submit(lambda m: (candles(series, m), trades(m)), m): m for m in todo}
         for f in as_completed(futs):
-            c, tr = f.result(); crow += c; trow += tr; brow += buckets(futs[f], tr); done += 1
+            m = futs.pop(f)                                   # nothing is kept in memory once it is saved
+            c, tr = f.result()
+            c.sort(key=lambda r: r[0])
+            append_gz(cpath, CANDLE_COLS, c); append_gz(tpath, TRADE_COLS, tr); append_gz(bpath, BUCKET_COLS, buckets(m, tr))
+            if m["ticker"] not in known:
+                new = not os.path.exists(mpath)
+                with open(mpath, "a", newline="") as fh:
+                    w = csv.writer(fh)
+                    if new: w.writerow(MARKET_COLS)
+                    w.writerow(market_row(m, series))
+                known.add(m["ticker"])
+            with open(donepath, "a") as fh: fh.write(m["ticker"] + "\n")
+            n_tr += len(tr); done += 1
+            del c, tr
             if done % 25 == 0:
-                left = (time.time() - t_series) / done * (len(ms) - done) / 60
-                say(f"  {series}: {done}/{len(ms)} markets, {len(trow):,} trades so far · about {left:.0f} min left for {series}")
-    crow.sort(key=lambda r: (r[1], r[0])); trow.sort(key=lambda r: (r[1], r[0] or "")); brow.sort(key=lambda r: (r[1], r[0]))
-    write_gz(cpath, CANDLE_COLS, crow); write_gz(tpath, TRADE_COLS, trow); write_gz(bpath, BUCKET_COLS, brow)
-    new = [m for m in ms if m["ticker"] not in known]
-    with open(mpath, "a", newline="") as f:
-        w = csv.writer(f)
-        if not known and f.tell() == 0: w.writerow(MARKET_COLS)
-        for m in sorted(new, key=lambda m: m["close_time"]):
-            w.writerow([m["ticker"], series, m.get("event_ticker"), m.get("open_time"), m.get("close_time"),
-                        m.get("floor_strike", m.get("cap_strike")), m.get("result"), int(m.get("result") == "yes"),
-                        m.get("settlement_value_dollars", m.get("settlement_value")), m.get("expiration_value"),
-                        num(m, "volume"), num(m, "open_interest")])
-            known.add(m["ticker"])
-    say(f"{series}: saved {len(crow):,} minute rows, {len(trow):,} trades and {len(brow):,} 15-second rows")
+                left = (time.time() - t_series) / done * (len(todo) - done) / 60
+                say(f"  {series}: {done}/{len(todo)} markets, {n_tr:,} trades so far · about {left:.0f} min left for {series}")
+    open(okpath, "w").write(dt.datetime.now(dt.timezone.utc).isoformat())
+    say(f"{series}: complete — {n_tr:,} trades in this run")
 if incomplete:
     ipath = os.path.join(OUT, "incomplete.csv")
     new = not os.path.exists(ipath)
