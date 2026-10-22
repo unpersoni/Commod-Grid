@@ -16,6 +16,8 @@
 #   (marked at the best bids) every order is cancelled for the rest of the run · kill switch STOP_LIPMM.txt on Drive ·
 #   a cancel is forgotten only once Kalshi confirms it · live: Kalshi-side expiry on every order, an order group,
 #   leftover orders in SERIES cancelled at start, positions checked against Kalshi, 10-second countdown.
+#   Every order expires on Kalshi's side ORDER_LIFE_MIN after it is placed and is renewed while the bot runs, so if
+#   Colab stops without warning no order outlives the bot by more than 30 minutes.
 # REWARD: the log shows the bot's ESTIMATE (each side scored against half the pool); Kalshi's real payout is on the
 #   Rewards page / Account -> Activity -> Credits.
 # LOGS (Drive): lip_maker_v2_fills.csv, lip_maker_v2_markets.csv, lip_maker_v2_data/orders_ (hourly, gzipped).
@@ -51,6 +53,9 @@ FAST_MOVE_C    = 4            # the YES mid moving 4c+ ...
 FAST_MOVE_SEC  = 60           # ... within 60 s pulls both sides ...
 COOL_OFF_SEC   = 300          # ... for 5 minutes
 REQUOTE_HOLD_SEC = 5          # an order is moved once its price has been off target this long
+ORDER_LIFE_MIN = 30           # every order expires on Kalshi's side 30 min after it is placed (if Colab dies, so do they)
+ORDER_RENEW_MIN = 25          # ... and the bot replaces it after 25 min while it runs
+KEEP_BONUS     = 1.25         # a market already quoted is kept unless another looks 25% better (fewer swaps)
 PROGRAMS_REFRESH_SEC = 600    # re-read Kalshi's reward programs and re-pick markets every 10 minutes
 LOOP_SEC       = 1            # one pass over the chosen markets every second (prices come from the stream)
 FILL_CHECK_SEC = 4            # live: read all our resting orders (fills) every 4 s
@@ -602,6 +607,8 @@ def main():
           f"no orders in the last {PULL_BEFORE_CLOSE_MIN} min · {FAST_MOVE_C}c move in {FAST_MOVE_SEC}s: both sides pulled for "
           f"{COOL_OFF_SEC / 60:g} min · sides quoted only at {MIN_PX}-{MAX_PX}c · kill switch: create {KILL_FILE}")
     print("reward shown here is the bot's ESTIMATE; Kalshi's real payout: Rewards page / Account -> Activity -> Credits")
+    print(f"every order expires on Kalshi's side {ORDER_LIFE_MIN} min after it is placed (renewed after {ORDER_RENEW_MIN} min "
+          f"while the bot runs) · a quoted market is kept unless another looks {round(100 * (KEEP_BONUS - 1))}% better")
     if live and LIVE_COUNTDOWN_SEC > 0:
         for i in range(int(LIVE_COUNTDOWN_SEC), 0, -1):
             print(f"LIVE trading starts in {i} s — stop the cell now to cancel", flush=True); time.sleep(1)
@@ -720,7 +727,8 @@ def main():
                 if m and live: lv = {s: minus_own(lv[s], own_of(m, s)) for s in ("yes", "no")}
                 est, cap = estimate(progs[t], lv)
                 if est: cands.append((est, cap, t))
-            cands.sort(key=lambda c: -c[0])
+            # markets already quoted get a bonus in the ranking, so small changes in the estimate do not swap them
+            cands.sort(key=lambda c: -c[0] * (KEEP_BONUS if (mk.get(c[2]) and mk[c[2]].quoting) else 1))
             chosen, used, per_grp = [], held_cost(), collections.Counter()
             for est, cap, t in cands:
                 if len(chosen) >= MAX_MARKETS: break
@@ -865,19 +873,22 @@ def main():
                 if other is not None and ref + other >= 100: ok = False
             if not ok:
                 drop(m, s, "pulled"); continue
-            if o and (o["px"] != ref or o["left"] > want_n):
-                o["since_off"] = o.get("since_off") or t_now
-                if t_now - o["since_off"] < REQUOTE_HOLD_SEC and o["left"] <= want_n: continue
-                if not drop(m, s, f"moved {o['px']}c -> {ref}c"): continue
+            renew = bool(o) and t_now - o["born"] >= ORDER_RENEW_MIN * 60
+            if o and (renew or o["px"] != ref or o["left"] > want_n):
+                if not renew:
+                    o["since_off"] = o.get("since_off") or t_now
+                    if t_now - o["since_off"] < REQUOTE_HOLD_SEC and o["left"] <= want_n: continue
+                if not drop(m, s, "renewed (expiry)" if renew else f"moved {o['px']}c -> {ref}c"): continue
                 o = None
             elif o:
                 o["since_off"] = None
             if not o:
-                expire = min(pr["end"], m.close - dt.timedelta(minutes=PULL_BEFORE_CLOSE_MIN)) if m.close else pr["end"]
+                expire = min(pr["end"], now() + dt.timedelta(minutes=ORDER_LIFE_MIN))
+                if m.close: expire = min(expire, m.close - dt.timedelta(minutes=PULL_BEFORE_CLOSE_MIN))
                 oid = gw.create(m.t, s, ref, int(want_n), expire)
                 if oid:
                     m.orders[s] = {"oid": oid, "side": s, "px": ref, "left": float(int(want_n)), "filled": 0.0,
-                                   "since_off": None, "ahead": dict(others[s]).get(ref, 0.0)}
+                                   "since_off": None, "ahead": dict(others[s]).get(ref, 0.0), "born": t_now}
 
     def settle(m):
         md = (api_get(sess, k, f"/markets/{m.t}") or {}).get("market") or {}

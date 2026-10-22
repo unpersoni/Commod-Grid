@@ -120,7 +120,7 @@ def wait_for(cond, t=8):
 WI = "KXAAAGASDWI-26OCT22-4.1500"
 # ---------------- 1) DRY RUN ----------------
 out = f"{SP}/run_lip2_dry"
-g = load(out, MAX_MARKETS=6, MAX_PER_STATE=2, BUDGET_USD=150)
+g = load(out, MAX_MARKETS=6, MAX_PER_STATE=2, BUDGET_USD=150, ORDER_RENEW_MIN=0.04)
 assert g["DRY_RUN"] is True and g["CONTRACTS"] == 10 and g["MAX_MARKETS"] == 6
 K = FakeKalshi(); F = FakeFeed(K)
 K.books[WI] = ({39: 150, 38: 200, 37: 200}, {52: 200, 51: 200})   # reference 38c (150 + 200 reach 1/5 of 1000); 200 ahead of us
@@ -163,6 +163,7 @@ assert f"FILL  {WI}: bought 4 YES @ 38c (simulated, our turn in line)" in txt
 assert f"FILL  {WI}: bought 6 YES @ 38c (simulated, traded through)" in txt
 assert "held YES 20 / NO 0 · net +20" in txt
 assert "price stream down" in txt and "price stream back — quoting again" in txt
+assert "cancel (renewed (expiry))" in orders_csv.replace('"', "")            # orders renewed before their Kalshi expiry
 assert "[stopped] every order cancelled" in txt and "estimated reward +$" in txt
 print("DRY RUN CHECKS PASSED")
 
@@ -200,6 +201,8 @@ assert "LIVE: REAL ORDERS WITH REAL MONEY" in txt2
 assert "cancelled leftover order old-1" in txt2 and "other-1" not in txt2
 creates = [p for p in K2.posts if "ticker" in p]
 assert all(c["post_only"] is True and c["order_group_id"] == "grp-1" and "expiration_time" in c for c in creates)
+lim = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=31)
+assert all(dt.datetime.fromisoformat(c["expiration_time"].replace("Z", "+00:00")) <= lim for c in creates)   # 30-min life
 assert f"FILL  {WI}: bought 4 YES @ 38c (Kalshi)" in txt2
 assert f"FILL  {WI}: bought 10 NO @ 52c (Kalshi)" in txt2
 assert any(c["ticker"] == WI and c["side"] == "bid" and c["price"] == "0.3900" for c in creates)
