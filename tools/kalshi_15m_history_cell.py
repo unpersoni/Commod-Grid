@@ -41,12 +41,12 @@ sess.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_ma
 stats = {"requests": 0, "retries": 0}
 
 FAILED = object()            # get() gave up (not the same as "nothing there")
-def get(path, params=None):
+def get(path, params=None, quiet=False):
     last = None
-    for attempt in range(8):
+    for attempt in range(5 if quiet else 8):
         LIM.take(); stats["requests"] += 1
         try:
-            r = sess.get(BASE + path, params=params, timeout=20)
+            r = sess.get(BASE + path, params=params, timeout=30)
             if r.status_code == 200: return r.json()
             if r.status_code == 404: return None
             last = f"HTTP {r.status_code}: {r.text[:120]}"
@@ -54,7 +54,7 @@ def get(path, params=None):
             last = f"{type(e).__name__}"
         stats["retries"] += 1
         time.sleep(min(2 ** attempt, 30))
-    say(f"  gave up on {path} ({last}) — this market is listed in incomplete.csv")
+    if not quiet: say(f"  gave up on {path} ({last}) — this market is listed in incomplete.csv")
     return FAILED
 
 def cents(d, key):
@@ -118,22 +118,40 @@ def candles(series, m):
     return rows
 
 def trades(m):
+    """Every trade of one market. Pages are followed by cursor; if a page cannot be read, the rest is asked for again
+    by time (from the last trade received) without the cursor, and duplicates are dropped by trade id."""
     t, close = m["ticker"], ts(m["close_time"])
     start = ts(m.get("open_time")) or (close - dt.timedelta(minutes=15))
-    rows, cursor = [], None
-    for _ in range(500):
-        p = {"ticker": t, "min_ts": int(start.timestamp()) - 60, "max_ts": int(close.timestamp()) + 60, "limit": 1000}
+    lo, hi = int(start.timestamp()) - 60, int(close.timestamp()) + 60
+    rows, seen, cursor, resumes = [], set(), None, 0
+    for _ in range(2000):
+        p = {"ticker": t, "min_ts": lo, "max_ts": hi, "limit": 1000}
         if cursor: p["cursor"] = cursor
-        d = get("/markets/trades", p)
-        if d is FAILED: incomplete.append((t, f"trades after {len(rows)}")); break
-        d = d or {}
-        for tr in d.get("trades", []) or []:
+        d = get("/markets/trades", p, quiet=True)
+        if d is FAILED:
+            got = [ts(r[0]) for r in rows if ts(r[0])]
+            if resumes >= 5 or not got:
+                incomplete.append((t, f"trades after {len(rows)}"))
+                say(f"  {t}: some trades could not be read (listed in incomplete.csv)"); break
+            resumes += 1; cursor = None
+            newest_first = getattr(trades, "newest_first", True)
+            if newest_first: hi = int(min(got).timestamp()) + 1        # the rest is older than what we have
+            else: lo = int(max(got).timestamp()) - 1                    # the rest is newer than what we have
+            continue
+        page = (d or {}).get("trades", []) or []
+        if len(page) >= 2:
+            a, b = ts(page[0].get("created_time")), ts(page[-1].get("created_time"))
+            if a and b and a != b: trades.newest_first = a > b
+        for tr in page:
+            tid = tr.get("trade_id") or json.dumps(tr, sort_keys=True)
+            if tid in seen: continue
+            seen.add(tid)
             ct = ts(tr.get("created_time"))
             yp = cents(tr, "yes_price")
             rows.append([tr.get("created_time"), t, None if not ct else round((close - ct).total_seconds(), 3),
                          yp, cents(tr, "no_price") if cents(tr, "no_price") is not None else flip(yp),
                          num(tr, "count"), tr.get("taker_side"), tr.get("trade_id")])
-        cursor = d.get("cursor")
+        cursor = (d or {}).get("cursor")
         if not cursor: break
     rows.sort(key=lambda r: r[0] or "")
     return rows
@@ -193,12 +211,14 @@ for series in SERIES:
         say(f"{series}: already saved — skipped (delete its files to fetch it again)"); continue
     ms = settled_markets(series, since)
     say(f"{series}: {len(ms)} settled markets — reading minute prices and every trade...")
-    crow, trow, brow, done = [], [], [], 0
+    crow, trow, brow, done, t_series = [], [], [], 0, time.time()
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
         futs = {ex.submit(lambda m: (candles(series, m), trades(m)), m): m for m in ms}
         for f in as_completed(futs):
             c, tr = f.result(); crow += c; trow += tr; brow += buckets(futs[f], tr); done += 1
-            if done % 100 == 0: say(f"  {series}: {done}/{len(ms)} markets, {len(trow):,} trades so far")
+            if done % 25 == 0:
+                left = (time.time() - t_series) / done * (len(ms) - done) / 60
+                say(f"  {series}: {done}/{len(ms)} markets, {len(trow):,} trades so far · about {left:.0f} min left for {series}")
     crow.sort(key=lambda r: (r[1], r[0])); trow.sort(key=lambda r: (r[1], r[0] or "")); brow.sort(key=lambda r: (r[1], r[0]))
     write_gz(cpath, CANDLE_COLS, crow); write_gz(tpath, TRADE_COLS, trow); write_gz(bpath, BUCKET_COLS, brow)
     new = [m for m in ms if m["ticker"] not in known]
