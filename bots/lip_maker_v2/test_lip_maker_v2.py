@@ -78,6 +78,8 @@ class FakeKalshi:
         with s.lock:
             s.posts.append(json)
             if url.endswith("/order_groups/create"): return Resp(201, {"order_group_id": "grp-1"})
+            if "expiration_time" in json and not isinstance(json["expiration_time"], int):   # as Kalshi answered live
+                return Resp(400, {"error": {"code": "bad_request", "details": "json: cannot unmarshal string into Go struct field .expiration_time of type int64"}})
             oid = f"oid-{len(s.posts)}"
             s.orders[oid] = {"order_id": oid, "ticker": json["ticker"], "side": json["side"], "price": json["price"], "status": "resting",
                              "initial_count_fp": json["count"], "remaining_count_fp": json["count"], "fill_count_fp": "0.00"}
@@ -220,7 +222,8 @@ assert "cancelled leftover order old-1" in txt2 and "other-1" not in txt2
 creates = [p for p in K2.posts if "ticker" in p]
 assert all(c["post_only"] is True and c["order_group_id"] == "grp-1" and "expiration_time" in c for c in creates)
 lim = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=31)
-assert all(dt.datetime.fromisoformat(c["expiration_time"].replace("Z", "+00:00")) <= lim for c in creates)   # 30-min life
+assert all(isinstance(c["expiration_time"], int) and time.time() < c["expiration_time"] and c["expiration_time"] <= lim.timestamp() for c in creates)   # 30-min life, Unix s
+assert "Kalshi rejected expiration_time" not in txt2
 assert f"FILL  {WI}: bought 4 YES @ 38c (Kalshi)" in txt2
 assert f"FILL  {WI}: bought 10 NO @ 52c (Kalshi)" in txt2
 assert any(c["ticker"] == WI and c["side"] == "bid" and c["price"] == "0.3900" for c in creates)

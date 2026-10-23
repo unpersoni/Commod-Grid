@@ -196,7 +196,7 @@ def order_body(ticker, side, px, count, coid, expire_dt, group_id):
             "count": f"{int(count)}.00", "price": f"{(px if side == 'yes' else 100 - px) / 100:.4f}",
             "time_in_force": "good_till_canceled", "post_only": True,
             "self_trade_prevention_type": "taker_at_cross", "exchange_index": -1}
-    if expire_dt is not None: body["expiration_time"] = expire_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if expire_dt is not None: body["expiration_time"] = int(expire_dt.timestamp())   # Unix seconds (Kalshi: int64)
     if group_id: body["order_group_id"] = group_id
     return body
 
