@@ -989,7 +989,8 @@ def main():
                         if m.close and now() >= m.close:
                             if m.orders["yes"] or m.orders["no"]: pull(m, "closed")
                             m.quoting = False
-                            if not (m.held["yes"] or m.held["no"]): m.done = True; continue
+                            if not (m.held["yes"] or m.held["no"]):
+                                totals["settled_reward"] += m.reward_c; m.done = True; continue
                             if settle_now: settle(m)
                             continue
                         work(m, dt_s)
