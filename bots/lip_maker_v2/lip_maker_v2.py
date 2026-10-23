@@ -583,6 +583,7 @@ class Market:
         self.reward_c = 0.0                         # estimated reward, cents
         self.share = {"yes": 0.0, "no": 0.0}
         self.adj = 0.0                              # live: Kalshi's net position minus ours (missed fills)
+        self.est, self.cap, self.missed = 0.0, 0, 0  # at the last pick: $/h estimate, cents tied up, picks its book was unquotable
         self.done = False
     def net(self): return self.held["yes"] - self.held["no"] + self.adj
     def has_any(self): return bool(self.held["yes"] or self.held["no"] or self.orders["yes"] or self.orders["no"])
@@ -729,6 +730,13 @@ def main():
                 if m and live: lv = {s: minus_own(lv[s], own_of(m, s)) for s in ("yes", "no")}
                 est, cap = estimate(progs[t], lv)
                 if est: cands.append((est, cap, t))
+            # a quoted market whose book is unquotable for a moment (a big quoter stepping out of every state at once) keeps
+            # its place for one pick on its last estimate, instead of being swapped for a worse market and back again
+            seen = {c[2] for c in cands}
+            for t in cand_t:
+                m = mk.get(t)
+                if m and m.quoting and t not in seen and m.est and m.missed < 1:
+                    m.missed += 1; cands.append((m.est, m.cap, t))
             # markets already quoted get a bonus in the ranking, so small changes in the estimate do not swap them
             cands.sort(key=lambda c: -c[0] * (KEEP_BONUS if (mk.get(c[2]) and mk[c[2]].quoting) else 1))
             chosen, used, per_grp = [], held_cost(), collections.Counter()
@@ -745,6 +753,7 @@ def main():
             for est, cap, t in chosen:
                 m = mk.setdefault(t, Market(t))
                 if not m.quoting: new.append(f"{t} (${est:.2f}/h)")
+                if t in seen: m.est, m.cap, m.missed = est, cap, 0
                 m.prog, m.close, m.quoting = progs[t], info[t]["close"], True
             for t, m in mk.items():                      # markets followed for their contracts: keep the close time
                 if m.close is None and t in info: m.close = info[t]["close"]
@@ -831,7 +840,7 @@ def main():
                 if px == o["px"]:
                     use = min(left, o["ahead"]); o["ahead"] -= use; left -= use
                 x = min(left, o["left"])
-                if x > 0:
+                if x > BOOK_DUST:                             # not rounding dust (e.g. 9e-15 left after the line ahead)
                     o["left"] -= x; o["filled"] += x
                     record_fill(m, s, x, o["px"], "simulated, " + ("our turn in line" if px == o["px"] else "traded through"))
                     if o["left"] <= 0: m.orders[s] = None
@@ -842,7 +851,7 @@ def main():
         if others is None: return                       # this book not known yet: nothing changes
         for s in ("yes", "no"): m.best[s] = scored[s][0][0] if scored[s] else None
         t_now = time.time()
-        if m.best["yes"] is not None and m.best["no"] is not None:
+        if m.quoting and m.best["yes"] is not None and m.best["no"] is not None:   # only markets we quote can be pulled
             mid = (m.best["yes"] + 100 - m.best["no"]) / 2
             m.mids.append((t_now, mid))
             while m.mids and t_now - m.mids[0][0] > FAST_MOVE_SEC + STABLE_SEC: m.mids.popleft()
